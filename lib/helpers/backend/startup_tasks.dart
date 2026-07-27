@@ -9,6 +9,7 @@ import 'package:bluebubbles/database/database.dart';
 import 'package:bluebubbles/services/isolates/global_isolate.dart';
 import 'package:bluebubbles/services/isolates/incremental_sync_isolate.dart';
 import 'package:bluebubbles/services/services.dart';
+import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/utils/logger/logger.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -227,6 +228,13 @@ class StartupTasks {
     GetIt.I.registerSingleton<IntentsService>(IntentsService());
     GetIt.I.registerSingleton<SyncService>(SyncService());
     GetIt.I.registerSingleton<ThemesService>(ThemesService());
+
+    // TN Messages fork — local Android SMS engine (default-SMS-app + our server).
+    if (!kIsWeb && !kIsDesktop) {
+      Logger.info("Registering SmsService...");
+      GetIt.I.registerSingleton<SmsService>(SmsService());
+      unawaited(SmsSvc.init());
+    }
 
     // Parallelize independent services for faster startup
     Logger.info("Waiting for services to be ready...");

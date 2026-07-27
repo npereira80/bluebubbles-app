@@ -18,4 +18,7 @@ abstract class MethodChannelInboundMethods {
   static const String iMessageAliasesRemoved = 'imessage-aliases-removed';
   static const String socketEvent = 'socket-event';
   static const String unifiedpushSettings = 'unifiedpush-settings';
+  // TN Messages fork — local Android SMS
+  static const String smsReceived = 'sms-received';
+  static const String smsSentStatus = 'sms-sent-status';
 }

@@ -22,6 +22,7 @@ import 'package:bluebubbles/app/layouts/settings/pages/misc/troubleshoot_panel.d
 import 'package:bluebubbles/app/layouts/settings/pages/profile/profile_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/pages/server/backup_restore_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/pages/server/server_management_panel.dart';
+import 'package:bluebubbles/app/layouts/settings/pages/sms_agent/sms_agent_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/pages/system/notification_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/pages/theming/theming_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/widgets/search/settings_items_actions.dart';
@@ -95,6 +96,35 @@ List<Widget> buildSettingItemList({
         ],
       ),
     ),
+    // TN Messages fork — local Android SMS control panel
+    if (Platform.isAndroid)
+      SearchableSettingItem(
+        title: "SMS Agent",
+        searchTags: ["SMS", "Android SMS", "Default SMS app", "Text messages", "SMS backup"],
+        child: SettingsSection(
+          backgroundColor: tileColor,
+          children: [
+            SettingsTile(
+              backgroundColor: tileColor,
+              title: "SMS Agent",
+              subtitle: "Android SMS — default app, backup & sync",
+              onTap: () {
+                ns.pushAndRemoveSettingsUntil(
+                  context,
+                  const SmsAgentPanel(),
+                  (Route route) => route.isFirst,
+                );
+              },
+              leading: const SettingsLeadingIcon(
+                iosIcon: CupertinoIcons.chat_bubble_2_fill,
+                materialIcon: Icons.sms_outlined,
+                containerColor: Colors.green,
+              ),
+              trailing: const NextButton(),
+            ),
+          ],
+        ),
+      ),
     if (!kIsWeb)
       SearchableSettingItem(
         title: "Server & Message Management",

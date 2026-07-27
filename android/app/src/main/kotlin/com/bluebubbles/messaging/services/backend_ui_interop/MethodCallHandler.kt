@@ -28,6 +28,14 @@ import com.bluebubbles.messaging.services.system.SaveFileToDownloadsHandler
 import com.bluebubbles.messaging.services.system.StartGoogleDuoRequestHandler
 import com.bluebubbles.messaging.services.foreground.StartForegroundServiceHandler
 import com.bluebubbles.messaging.services.foreground.StopForegroundServiceHandler
+import com.bluebubbles.messaging.services.sms.SmsCountHandler
+import com.bluebubbles.messaging.services.sms.SmsDeleteHandler
+import com.bluebubbles.messaging.services.sms.SmsIsDefaultHandler
+import com.bluebubbles.messaging.services.sms.SmsMarkReadHandler
+import com.bluebubbles.messaging.services.sms.SmsQueryHandler
+import com.bluebubbles.messaging.services.sms.SmsRequestDefaultHandler
+import com.bluebubbles.messaging.services.sms.SmsSendHandler
+import com.bluebubbles.messaging.services.sms.SmsSimInfoHandler
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
@@ -130,6 +138,15 @@ class MethodCallHandler {
             DeleteNotificationHandler.tag -> DeleteNotificationHandler().handleMethodCall(call, result, context)
             StartForegroundServiceHandler.tag -> StartForegroundServiceHandler().handleMethodCall(call, result, context)
             StopForegroundServiceHandler.tag -> StopForegroundServiceHandler().handleMethodCall(call, result, context)
+            // TN Messages fork — SMS engine
+            SmsIsDefaultHandler.tag -> SmsIsDefaultHandler().handleMethodCall(call, result, context)
+            SmsRequestDefaultHandler.tag -> SmsRequestDefaultHandler().handleMethodCall(call, result, context)
+            SmsQueryHandler.tag -> SmsQueryHandler().handleMethodCall(call, result, context)
+            SmsCountHandler.tag -> SmsCountHandler().handleMethodCall(call, result, context)
+            SmsSendHandler.tag -> SmsSendHandler().handleMethodCall(call, result, context)
+            SmsMarkReadHandler.tag -> SmsMarkReadHandler().handleMethodCall(call, result, context)
+            SmsDeleteHandler.tag -> SmsDeleteHandler().handleMethodCall(call, result, context)
+            SmsSimInfoHandler.tag -> SmsSimInfoHandler().handleMethodCall(call, result, context)
             else -> {
                 val error = "Could not find method call handler for ${call.method}!"
                 PersistentLog.d(context, Constants.logTag, error)

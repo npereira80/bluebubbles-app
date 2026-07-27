@@ -129,7 +129,7 @@ class _TextBubbleState extends State<TextBubble> with ThemeHelpers {
             ? (selected
                 ? context.theme.colorScheme.tertiaryContainer
                 : context.theme.colorScheme
-                    .bubble(context, message.chat.target?.isIMessage ?? true)
+                    .bubble(context, (message.chat.target?.isIMessage ?? true) && !message.isFromSms)
                     .darkenAmount(isTempMessage ? 0.2 : 0))
             : null,
         decoration: isFromMe || message.isBigEmoji

@@ -129,6 +129,11 @@ class Message {
   @Transient()
   bool get isSending => isFromMe == true && guid != null && guid!.startsWith("temp");
 
+  // TN fork: locally-synced Android SMS (guid `sms-...`); used to render green
+  // bubbles even inside an iMessage chat.
+  @Transient()
+  bool get isFromSms => guid?.startsWith("sms-") ?? false;
+
   @Transient()
   bool get isSticker => associatedMessageType == "sticker" && associatedMessageGuid != null;
 

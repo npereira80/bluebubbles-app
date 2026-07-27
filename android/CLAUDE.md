@@ -13,6 +13,7 @@ Source: `app/src/main/kotlin/com/bluebubbles/messaging/`
 | `services/network/` | Native HTTP service |
 | `services/backend_ui_interop/` | DartWorkManager / DartWorker for background Dart |
 | `services/filesystem/` | File path resolution |
+| `services/sms/` | **TN fork:** default-SMS-app engine — provider read/write/delete, send, SIM info, SMS_DELIVER/WAP receivers, quick-reply service, method-channel handlers. See `docs/SMS_INTEGRATION.md`. |
 
 ## Dart ↔ Android Bridge
 Flutter side: `lib/services/backend/java_dart_interop/`

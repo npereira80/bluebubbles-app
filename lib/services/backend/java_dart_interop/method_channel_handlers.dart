@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:bluebubbles/database/database.dart';
 import 'package:bluebubbles/database/models.dart';
+import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/helpers/backend/settings_helpers.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/services/services.dart';
@@ -45,6 +46,8 @@ class MethodChannelHandlers {
       MethodChannelInboundMethods.iMessageAliasesRemoved: _handleAliasesRemoved,
       MethodChannelInboundMethods.socketEvent: _handleSocketEvent,
       MethodChannelInboundMethods.unifiedpushSettings: _handleUnifiedPushSettings,
+      MethodChannelInboundMethods.smsReceived: _handleSmsReceived,
+      MethodChannelInboundMethods.smsSentStatus: _handleSmsSentStatus,
     };
   }
 
@@ -59,6 +62,31 @@ class MethodChannelHandlers {
 
   static Future<bool> _ok() => Future.value(true);
   static Future<bool> _retry() => Future.value(false);
+
+  // TN Messages fork — local Android SMS from the native engine.
+  Future<bool> _handleSmsReceived(MethodCall _, Map<String, dynamic>? arguments) async {
+    if (arguments == null) return _ok();
+    if (!GetIt.I.isRegistered<SmsService>()) return _retry();
+    await Database.waitForInit();
+    try {
+      await SmsSvc.onSmsReceived(arguments);
+    } catch (e, s) {
+      Logger.error('Error processing incoming SMS: $e', trace: s);
+    }
+    return _ok();
+  }
+
+  Future<bool> _handleSmsSentStatus(MethodCall _, Map<String, dynamic>? arguments) async {
+    if (arguments == null) return _ok();
+    if (GetIt.I.isRegistered<SmsService>()) {
+      try {
+        await SmsSvc.onSentStatus(arguments);
+      } catch (e, s) {
+        Logger.error('Error processing SMS sent status: $e', trace: s);
+      }
+    }
+    return _ok();
+  }
 
   Future<bool> _handleNewServerUrl(MethodCall _, Map<String, dynamic>? arguments) async {
     if (arguments == null) return _retry();

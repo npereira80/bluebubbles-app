@@ -4,6 +4,7 @@ import 'dart:collection';
 import 'package:bluebubbles/database/models.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/services/backend/interfaces/send_message_interface.dart';
+import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/services/isolates/global_isolate.dart';
 import 'package:bluebubbles/services/services.dart';
 import 'package:bluebubbles/utils/file_utils.dart';
@@ -735,6 +736,12 @@ class OutgoingMessageHandler {
 
   /// Sends a text message (or a reaction/tapback) to [c].
   Future<void> sendMessage(Chat c, Message m, Message? selected, String? r) {
+    // TN fork: SMS-service chats transmit over the local SIM, NOT the
+    // BlueBubbles server. (Reactions/tapbacks aren't supported over SMS.)
+    if (r == null && c.isSMS && GetIt.I.isRegistered<SmsService>()) {
+      return _sendLocalSms(c, m);
+    }
+
     ChatsSvc.updateChat(c);
 
     // Only update latest message if the failed message is the current latest message.
@@ -807,6 +814,34 @@ class OutgoingMessageHandler {
             : null,
       ),
     );
+  }
+
+  /// TN fork: send an SMS-service message over the local SIM (no BlueBubbles
+  /// server round-trip). The temp message was already persisted by prep; on
+  /// success we swap its temp GUID for a real one so it stops "sending".
+  Future<void> _sendLocalSms(Chat c, Message m) async {
+    final tempGuid = m.guid!;
+    final address = (c.participants.isNotEmpty ? c.participants.first.address : null) ??
+        c.chatIdentifier ??
+        (c.guid.contains(';-;') ? c.guid.split(';-;').last : c.guid);
+    final body = m.text ?? '';
+
+    ChatsSvc.updateChat(c);
+    if (ChatsSvc.getChatState(c.guid)?.latestMessage.value?.guid == m.guid) {
+      ChatsSvc.updateChatLatestMessage(c.guid, m);
+    }
+
+    try {
+      await SmsSvc.nativeSend(address, body, tempGuid);
+      final int ts = m.dateCreated?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
+      m.guid = SmsService.smsGuid(isFromMe: true, address: address, body: body, dateMs: ts);
+      m.dateDelivered = DateTime.now();
+      await _matchMessageWithExisting(c, tempGuid, m);
+      unawaited(SmsSvc.recordOutgoing(address, body, ts));
+    } catch (e, s) {
+      await _finalizeOutgoingFailure(c, m, tempGuid,
+          logMessage: 'Failed to send SMS via SIM', error: e, stack: s);
+    }
   }
 
   /// Sends a multipart (mention / mixed-content) message.
