@@ -31,6 +31,7 @@ import com.bluebubbles.messaging.services.foreground.StopForegroundServiceHandle
 import com.bluebubbles.messaging.services.sms.SmsCountHandler
 import com.bluebubbles.messaging.services.sms.SmsDeleteHandler
 import com.bluebubbles.messaging.services.sms.SmsDeleteMatchHandler
+import com.bluebubbles.messaging.services.sms.SmsDeleteThreadHandler
 import com.bluebubbles.messaging.services.sms.SmsIsDefaultHandler
 import com.bluebubbles.messaging.services.sms.SmsMarkReadHandler
 import com.bluebubbles.messaging.services.sms.SmsQueryHandler
@@ -152,6 +153,7 @@ class MethodCallHandler {
             SmsMarkReadHandler.tag -> SmsMarkReadHandler().handleMethodCall(call, result, context)
             SmsDeleteHandler.tag -> SmsDeleteHandler().handleMethodCall(call, result, context)
             SmsDeleteMatchHandler.tag -> SmsDeleteMatchHandler().handleMethodCall(call, result, context)
+            SmsDeleteThreadHandler.tag -> SmsDeleteThreadHandler().handleMethodCall(call, result, context)
             SmsSimInfoHandler.tag -> SmsSimInfoHandler().handleMethodCall(call, result, context)
             MmsQueryHandler.tag -> MmsQueryHandler().handleMethodCall(call, result, context)
             MmsPartBytesHandler.tag -> MmsPartBytesHandler().handleMethodCall(call, result, context)

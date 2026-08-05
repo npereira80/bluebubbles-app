@@ -108,7 +108,24 @@ class SmsDeleteMatchHandler : MethodCallHandlerImpl() {
     override fun handleMethodCall(call: MethodCall, result: MethodChannel.Result, context: Context) {
         val date = call.argument<Number>("date")?.toLong() ?: 0L
         val body = call.argument<String>("body") ?: ""
-        result.success(SmsProvider.deleteMatching(context, date, body))
+        // Try both stores: an MMS left in the provider gets re-imported by the
+        // next backfill exactly like an SMS would.
+        val removed = SmsProvider.deleteMatching(context, date, body) +
+            MmsProvider.deleteMatching(context, date)
+        result.success(removed)
+    }
+}
+
+/**
+ * Delete an entire conversation from the system store (SMS + MMS), so the thread
+ * disappears from other SMS apps and our own backfill can't resurrect it.
+ * Arg: address:String.
+ */
+class SmsDeleteThreadHandler : MethodCallHandlerImpl() {
+    companion object { const val tag = "sms-delete-thread" }
+    override fun handleMethodCall(call: MethodCall, result: MethodChannel.Result, context: Context) {
+        val address = call.argument<String>("address") ?: ""
+        result.success(SmsProvider.deleteThread(context, address))
     }
 }
 

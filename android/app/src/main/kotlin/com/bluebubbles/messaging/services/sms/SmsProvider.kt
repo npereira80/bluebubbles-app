@@ -2,7 +2,10 @@ package com.bluebubbles.messaging.services.sms
 
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.provider.Telephony
+import android.util.Log
+import com.bluebubbles.messaging.Constants
 
 /**
  * Read/write access to the system SMS (Telephony) provider. Writes require the
@@ -119,5 +122,42 @@ object SmsProvider {
             "${Telephony.Sms.DATE} = ? AND ${Telephony.Sms.BODY} = ?",
             arrayOf(dateMs.toString(), body),
         )
+    }
+
+    /**
+     * Delete a whole conversation (SMS *and* MMS) from the system store.
+     *
+     * Deleting a chat in the app used to leave every row in the Telephony
+     * provider: the thread still showed up in Google Messages, and our own
+     * backfill could read it straight back in — messages reappearing over and
+     * over. Deleting by thread id is what the system SMS app does; the per-table
+     * deletes are a fallback for devices that reject the conversations URI.
+     */
+    fun deleteThread(context: Context, address: String): Int {
+        if (address.isBlank()) return 0
+        return try {
+            val threadId = Telephony.Threads.getOrCreateThreadId(context, address)
+            var deleted = try {
+                context.contentResolver.delete(
+                    Uri.parse("content://mms-sms/conversations/$threadId"), null, null,
+                )
+            } catch (e: Exception) {
+                0
+            }
+            if (deleted == 0) {
+                val args = arrayOf(threadId.toString())
+                deleted += runCatching {
+                    context.contentResolver.delete(SMS_URI, "thread_id = ?", args)
+                }.getOrDefault(0)
+                deleted += runCatching {
+                    context.contentResolver.delete(Telephony.Mms.CONTENT_URI, "thread_id = ?", args)
+                }.getOrDefault(0)
+            }
+            Log.i(Constants.logTag, "deleteThread: removed $deleted row(s) for thread $threadId")
+            deleted
+        } catch (e: Exception) {
+            Log.w(Constants.logTag, "deleteThread failed: ${e.message}")
+            0
+        }
     }
 }

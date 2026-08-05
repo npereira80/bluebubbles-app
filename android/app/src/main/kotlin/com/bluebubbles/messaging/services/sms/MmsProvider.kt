@@ -144,4 +144,17 @@ object MmsProvider {
     fun deleteById(context: Context, mmsId: Long): Int {
         return context.contentResolver.delete(ContentUris.withAppendedId(MMS_URI, mmsId), null, null)
     }
+
+    /**
+     * Delete the MMS matching this timestamp. Counterpart to the SMS date+body
+     * match: without it a deleted MMS stayed in the system store and the next
+     * backfill re-imported it. Note MMS dates are stored in SECONDS.
+     */
+    fun deleteMatching(context: Context, dateMs: Long): Int {
+        if (dateMs <= 0) return 0
+        val seconds = dateMs / 1000
+        return runCatching {
+            context.contentResolver.delete(MMS_URI, "date = ?", arrayOf(seconds.toString()))
+        }.getOrDefault(0)
+    }
 }

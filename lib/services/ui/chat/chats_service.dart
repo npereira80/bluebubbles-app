@@ -1052,8 +1052,16 @@ class ChatsService {
   void _pushSmsChatDelete(Chat chat) {
     if (!chat.guid.startsWith('SMS;-;tn:')) return;
     if (!GetIt.I.isRegistered<SmsService>()) return;
+
+    // Always clear the system SMS store, even when we're applying a deletion
+    // that came from another device: leaving the rows there meant the thread
+    // still existed for Google Messages and our own backfill re-imported it, so
+    // deleted conversations kept coming back.
+    final address = chat.chatIdentifier ?? '';
+    if (address.isNotEmpty) unawaited(SmsSvc.deleteThreadFromProvider(address));
+
     if (SmsSvc.suppressServerDeletePush) return; // applying a remote deletion
-    final id = SmsService.serverConvId(chat.chatIdentifier ?? '');
+    final id = SmsService.serverConvId(address);
     if (id.isEmpty || id == '+') return;
     unawaited(SmsSvc.deleteOnServer(conversationId: id));
   }

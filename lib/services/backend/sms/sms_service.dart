@@ -188,6 +188,21 @@ class SmsService {
     }
   }
 
+  /// Delete an entire conversation (SMS + MMS) from the Android Telephony
+  /// provider. Deleting a chat used to leave every row in the system store, so
+  /// the thread was still there in Google Messages and our own backfill could
+  /// re-import it — messages coming back over and over.
+  Future<void> deleteThreadFromProvider(String address) async {
+    if (kIsWeb || kIsDesktop) return;
+    if (address.trim().isEmpty) return;
+    try {
+      final removed = await MethodChannelSvc.invokeMethod('sms-delete-thread', {'address': address});
+      Logger.info('SmsService: purged $removed provider row(s) for a deleted thread');
+    } catch (e) {
+      Logger.warn('SMS provider thread delete failed: $e');
+    }
+  }
+
   Future<void> refreshStatus() async {
     try {
       isDefaultSmsApp.value = (await MethodChannelSvc.invokeMethod('sms-is-default')) == true;
@@ -664,16 +679,14 @@ class SmsService {
       for (final chat in ChatsSvc.allChats.where((c) => c.guid.startsWith('SMS;-;tn:')).toList()) {
         if (serverConvId(chat.chatIdentifier ?? '') != convId) continue;
         final paired = ChatMerge.pairedChat(chat);
+        // One provider purge for the whole thread: the previous per-message
+        // date+body deletes only covered SMS rows (MMS survived) and were slow
+        // on long threads.
+        await deleteThreadFromProvider(chat.chatIdentifier ?? '');
         for (final m in Chat.getMessages(chat, limit: 100000)) {
           final g = m.guid;
           if (g == null) continue;
           await Message.delete(g);
-          // Remove from the Telephony provider too so a Mac-initiated thread
-          // delete doesn't get re-ingested from the SIM phone's own store.
-          await deleteFromProvider(
-            dateMs: m.dateCreated?.millisecondsSinceEpoch ?? 0,
-            body: m.text ?? '',
-          );
           if (Get.isRegistered<MessagesService>(tag: chat.guid)) MessagesSvc(chat.guid).removeMessage(m);
           if (paired != null && Get.isRegistered<MessagesService>(tag: paired.guid)) {
             MessagesSvc(paired.guid).removeMessage(m);
