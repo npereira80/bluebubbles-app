@@ -159,6 +159,10 @@ dependencies {
     // TN Watch provisioning over the Wear Data Layer
     implementation "com.google.android.gms:play-services-wearable:18.2.0"
 
+    // Garmin Connect IQ companion SDK: serves the Garmin watch app over BLE.
+    // (Bump if your Maven mirror has a newer release.)
+    implementation "com.garmin.connectiq:ciq-companion-app-sdk:2.2.0"
+
     // Firebase items
     implementation 'com.google.firebase:firebase-messaging:24.0.0'
     implementation 'com.google.firebase:firebase-database:21.0.0'

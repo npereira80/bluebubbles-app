@@ -94,6 +94,33 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
 
+        // Garmin watch app: Dart hands us a compact snapshot to serve over BLE,
+        // and we hand outbound replies back to Dart's existing send paths.
+        val garminChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tnwatch/garmin")
+        com.bluebubbles.messaging.garmin.GarminBridge.start(this)
+        com.bluebubbles.messaging.garmin.GarminBridge.sender = { chatKey, service, body ->
+            runOnUiThread {
+                garminChannel.invokeMethod(
+                    "send",
+                    mapOf("chatKey" to chatKey, "service" to service, "body" to body),
+                )
+            }
+        }
+        garminChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "snapshot" -> {
+                    val json = call.argument<String>("json") ?: ""
+                    if (json.isNotEmpty()) com.bluebubbles.messaging.garmin.GarminBridge.updateSnapshot(json)
+                    result.success(true)
+                }
+                "notify" -> {
+                    com.bluebubbles.messaging.garmin.GarminBridge.notifyNew()
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             val cause = throwable.cause ?: throwable

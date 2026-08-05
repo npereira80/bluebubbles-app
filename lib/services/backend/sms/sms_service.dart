@@ -10,6 +10,7 @@ import 'package:bluebubbles/database/models.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/services/backend/incoming_message_handler.dart';
 import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
+import 'package:bluebubbles/services/backend/watch/garmin_snapshot.dart';
 import 'package:bluebubbles/services/backend/watch/watch_provisioner.dart';
 import 'package:bluebubbles/services/backend/sms/sms_send_mode.dart';
 import 'package:bluebubbles/services/backend/sms/sms_server_client.dart';
@@ -126,6 +127,9 @@ class SmsService {
 
       // Provision the paired TN Watch with both backends' credentials.
       unawaited(WatchProvisioner.push());
+      // Serve the Garmin watch app: it reads everything from us over Bluetooth
+      // (it can't use the HTTP API or reach iMessage on its own).
+      unawaited(GarminSnapshot.init());
     } catch (e, s) {
       Logger.error('SmsService init failed: $e', trace: s);
     }
@@ -1359,5 +1363,9 @@ class SmsService {
     // and mark unread for a live incoming SMS.
     final hydrated = Message.findOne(guid: message.guid) ?? message;
     ChatMerge.reflectSmsIntoPairedChat(address, hydrated, markUnread: live && !isFromMe);
+
+    // Refresh what the Garmin watch reads, and nudge it if it's open.
+    GarminSnapshot.schedule();
+    if (live && !isFromMe) unawaited(GarminSnapshot.notifyNew());
   }
 }
