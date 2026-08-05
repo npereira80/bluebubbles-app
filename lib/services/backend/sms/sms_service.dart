@@ -361,7 +361,14 @@ class SmsService {
     await _server!.send(to: address, body: text, attachments: attachments);
   }
 
+  /// Called after this device transmits an SMS over the radio.
+  ///
+  /// Ingests the message immediately so the Mac/watch see it, then schedules the
+  /// provider push. Waiting only on the provider round-trip (SmsSentReceiver
+  /// writes the Sent box → next syncToServer) left the message visible on this
+  /// phone alone whenever that write was late or missing.
   Future<void> recordOutgoing(String address, String body, int ts) async {
+    await _ingestOutgoing(address, body, ts);
     unawaited(Future.delayed(const Duration(seconds: 4), syncToServer));
   }
 
@@ -718,14 +725,56 @@ class SmsService {
       } else {
         await nativeSend(to, body, 'ws-$requestId');
         final ts = DateTime.now().millisecondsSinceEpoch;
-        unawaited(recordOutgoing(to, body, ts));
         await _insert({'address': to, 'body': body, 'date': ts, 'isFromMe': true}, live: false);
+        // Awaited: recordOutgoing ingests the message, so the watch/Mac that
+        // requested this send has it before we report success.
+        await recordOutgoing(to, body, ts);
         _sendStreamStatus(requestId, 'sent');
       }
     } catch (e) {
       Logger.warn('SMS stream send failed: $e');
       _sendStreamStatus(requestId, 'failed');
     }
+  }
+
+  /// Outgoing messages ingested directly (address|body|ts), so the provider copy
+  /// of the same message isn't pushed a second time. The server dedups by content
+  /// hash, but that hash buckets the timestamp in 10s windows, and our timestamp
+  /// and the provider's can straddle a boundary — which would create a duplicate.
+  final List<({String address, String body, int ts})> _directIngests = [];
+
+  /// Ingest an outgoing SMS we just transmitted, so other devices see it without
+  /// waiting for the provider → push round-trip.
+  Future<void> _ingestOutgoing(String to, String body, int ts) async {
+    try {
+      if (!await _ensureServer()) return;
+      final address = canonAddress(to);
+      await _server!.ingest([
+        {
+          'direction': 'out',
+          'address': address,
+          'body': body,
+          'ts': ts,
+          'type': 'sms',
+        }
+      ]);
+      final cutoff = DateTime.now().millisecondsSinceEpoch - 300000; // keep 5 min
+      _directIngests.removeWhere((e) => e.ts < cutoff);
+      _directIngests.add((address: address, body: body, ts: ts));
+    } catch (e) {
+      // Non-fatal: the provider copy still gets pushed by the next sync.
+      Logger.warn('SmsService: direct ingest of outgoing SMS failed: $e');
+    }
+  }
+
+  /// True when this provider row is the echo of a message we already ingested.
+  bool _alreadyIngested(Map<String, dynamic> serverMsg) {
+    if (serverMsg['direction'] != 'out') return false;
+    final address = (serverMsg['address'] as String?) ?? '';
+    final body = (serverMsg['body'] as String?) ?? '';
+    final ts = (serverMsg['ts'] as num?)?.toInt() ?? 0;
+    return _directIngests.any((e) =>
+        e.address == address && e.body == body && (e.ts - ts).abs() <= 15000);
   }
 
   void _sendStreamStatus(String requestId, String status) {
@@ -799,7 +848,10 @@ class SmsService {
         final map = (r as Map).cast<String, dynamic>();
         final int d = (map['date'] as num?)?.toInt() ?? 0;
         if (d > maxDate) maxDate = d;
-        batch.add(_toServerMsg(map));
+        final serverMsg = _toServerMsg(map);
+        // Skip the provider echo of a message we already ingested at send time.
+        if (_alreadyIngested(serverMsg)) continue;
+        batch.add(serverMsg);
       }
       for (var i = 0; i < batch.length; i += 200) {
         await _server!.ingest(batch.sublist(i, (i + 200) > batch.length ? batch.length : i + 200));
