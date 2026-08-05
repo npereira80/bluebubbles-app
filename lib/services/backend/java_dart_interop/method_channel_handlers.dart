@@ -48,6 +48,7 @@ class MethodChannelHandlers {
       MethodChannelInboundMethods.unifiedpushSettings: _handleUnifiedPushSettings,
       MethodChannelInboundMethods.smsReceived: _handleSmsReceived,
       MethodChannelInboundMethods.smsSentStatus: _handleSmsSentStatus,
+      MethodChannelInboundMethods.mmsReceived: _handleMmsReceived,
     };
   }
 
@@ -72,6 +73,17 @@ class MethodChannelHandlers {
       await SmsSvc.onSmsReceived(arguments);
     } catch (e, s) {
       Logger.error('Error processing incoming SMS: $e', trace: s);
+    }
+    return _ok();
+  }
+
+  Future<bool> _handleMmsReceived(MethodCall _, Map<String, dynamic>? arguments) async {
+    if (!GetIt.I.isRegistered<SmsService>()) return _retry();
+    await Database.waitForInit();
+    try {
+      await SmsSvc.onMmsReceived(arguments ?? const {});
+    } catch (e, s) {
+      Logger.error('Error processing incoming MMS: $e', trace: s);
     }
     return _ok();
   }

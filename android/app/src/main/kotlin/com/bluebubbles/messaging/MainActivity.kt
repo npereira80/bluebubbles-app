@@ -65,6 +65,35 @@ class MainActivity : FlutterFragmentActivity() {
             call, result -> MethodCallHandler().methodCallHandler(call, result, this)
         }
 
+        // TN Watch: receive both backends' config from Dart and provision the
+        // watch over the Wear Data Layer.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tnwatch/provision").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "provision" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val raw = call.arguments as? Map<String, Any?> ?: emptyMap()
+                    val cfg = raw.mapValues { it.value?.toString() }
+                    com.bluebubbles.messaging.wear.WatchProvisioner.cache(this, cfg)
+                    result.success(true)
+                }
+                // Watch App Client screen: live status over Bluetooth, and a
+                // command to wipe + re-sync the watch's local database.
+                "status" -> com.bluebubbles.messaging.wear.WatchStatusClient.status(this, result)
+                "resync" -> com.bluebubbles.messaging.wear.WatchStatusClient.resync(this, result)
+                // Force-push every contact photo we have to the watch. Contacts
+                // + bitmap work, so keep it off the main thread.
+                "pushAvatars" -> {
+                    Thread {
+                        val sent = com.bluebubbles.messaging.wear.WatchAvatarSync.pushAll(this)
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            result.success(sent)
+                        }
+                    }.start()
+                }
+                else -> result.notImplemented()
+            }
+        }
+
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             val cause = throwable.cause ?: throwable

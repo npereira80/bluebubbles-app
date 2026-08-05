@@ -124,6 +124,17 @@
             </intent-filter>
         </receiver>
 
+        <!-- Fired by the telephony stack (via PendingIntent) when an MMS finishes
+             downloading; not exported (explicit target only). -->
+        <receiver
+            android:name=".services.sms.MmsDownloadedReceiver"
+            android:exported="false" />
+
+        <!-- Sent-status callback for outgoing MMS (via PendingIntent). -->
+        <receiver
+            android:name=".services.sms.MmsSentReceiver"
+            android:exported="false" />
+
         <service
             android:name=".services.sms.HeadlessSmsSendService"
             android:permission="android.permission.SEND_RESPOND_VIA_MESSAGE"
@@ -335,6 +346,24 @@
         <meta-data android:name="WindowManagerPreference:SuppressWindowControlNavigationButton" android:value="true" />
         <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="tablet" />
         <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
+
+        <!-- TN Watch: answer config + contact-photo requests from the paired watch. -->
+        <service
+            android:name="com.bluebubbles.messaging.wear.WatchConfigListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/tnwatch/request-config" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/tnwatch/request-avatars" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/tnwatch/avatar-request" />
+            </intent-filter>
+        </service>
 
     </application>
 

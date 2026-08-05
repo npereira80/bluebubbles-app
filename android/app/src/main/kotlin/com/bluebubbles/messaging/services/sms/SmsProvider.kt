@@ -106,4 +106,18 @@ object SmsProvider {
         }
         return deleted
     }
+
+    /**
+     * Delete provider rows matching a specific date+body. Used when the user
+     * deletes a message in the app UI: without this the row stays in the system
+     * SMS store and the next backfill re-imports (resurrects) it. date is unique
+     * enough per message that matching date+body is safe. Returns count deleted.
+     */
+    fun deleteMatching(context: Context, dateMs: Long, body: String): Int {
+        return context.contentResolver.delete(
+            SMS_URI,
+            "${Telephony.Sms.DATE} = ? AND ${Telephony.Sms.BODY} = ?",
+            arrayOf(dateMs.toString(), body),
+        )
+    }
 }

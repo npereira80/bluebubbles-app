@@ -23,6 +23,7 @@ import 'package:bluebubbles/app/layouts/settings/pages/profile/profile_panel.dar
 import 'package:bluebubbles/app/layouts/settings/pages/server/backup_restore_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/pages/server/server_management_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/pages/sms_agent/sms_agent_panel.dart';
+import 'package:bluebubbles/app/layouts/settings/pages/watch/watch_client_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/pages/system/notification_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/pages/theming/theming_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/widgets/search/settings_items_actions.dart';
@@ -119,6 +120,35 @@ List<Widget> buildSettingItemList({
                 iosIcon: CupertinoIcons.chat_bubble_2_fill,
                 materialIcon: Icons.sms_outlined,
                 containerColor: Colors.green,
+              ),
+              trailing: const NextButton(),
+            ),
+          ],
+        ),
+      ),
+    // TN Messages fork — Wear OS companion status
+    if (Platform.isAndroid)
+      SearchableSettingItem(
+        title: "Watch App Client",
+        searchTags: ["Watch", "Wear OS", "Smartwatch", "Wearable", "Watch sync"],
+        child: SettingsSection(
+          backgroundColor: tileColor,
+          children: [
+            SettingsTile(
+              backgroundColor: tileColor,
+              title: "Watch App Client",
+              subtitle: "Wear OS app status, connectivity & re-sync",
+              onTap: () {
+                ns.pushAndRemoveSettingsUntil(
+                  context,
+                  const WatchClientPanel(),
+                  (Route route) => route.isFirst,
+                );
+              },
+              leading: const SettingsLeadingIcon(
+                iosIcon: CupertinoIcons.device_laptop,
+                materialIcon: Icons.watch_outlined,
+                containerColor: Colors.indigo,
               ),
               trailing: const NextButton(),
             ),

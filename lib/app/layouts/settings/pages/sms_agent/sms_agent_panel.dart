@@ -23,6 +23,13 @@ class _SmsAgentPanelState extends State<SmsAgentPanel> with ThemeHelpers {
   void initState() {
     super.initState();
     SmsSvc.refreshStatus();
+    // Check server reachability as soon as the view opens.
+    SmsSvc.pingServer();
+  }
+
+  Future<void> _refresh() async {
+    await SmsSvc.refreshStatus();
+    await SmsSvc.pingServer();
   }
 
   @override
@@ -58,11 +65,46 @@ class _SmsAgentPanelState extends State<SmsAgentPanel> with ThemeHelpers {
       tileColor: tileColor,
       headerColor: headerColor,
       bodySlivers: [
+        CupertinoSliverRefreshControl(onRefresh: _refresh),
         SliverList(
           delegate: SliverChildListDelegate(<Widget>[
             SettingsSection(
               backgroundColor: tileColor,
               children: [
+                Obx(() {
+                  final online = SmsSvc.serverOnline.value;
+                  final pinging = SmsSvc.serverPinging.value;
+                  final String label;
+                  final Color color;
+                  if (pinging && online == null) {
+                    label = "Checking…";
+                    color = Colors.grey;
+                  } else if (online == true) {
+                    label = "ONLINE";
+                    color = Colors.green;
+                  } else if (online == false) {
+                    label = "OFFLINE";
+                    color = Colors.red;
+                  } else {
+                    label = "Unknown — tap to check";
+                    color = Colors.grey;
+                  }
+                  return SettingsTile(
+                    backgroundColor: tileColor,
+                    title: "Server status",
+                    subtitle: label,
+                    onTap: pinging ? null : () => SmsSvc.pingServer(),
+                    trailing: pinging
+                        ? _spinner
+                        : Icon(Icons.circle, size: 14, color: color),
+                    leading: SettingsLeadingIcon(
+                      iosIcon: CupertinoIcons.dot_radiowaves_left_right,
+                      materialIcon: Icons.dns_outlined,
+                      containerColor: color,
+                    ),
+                  );
+                }),
+                const SettingsDivider(),
                 Obx(() => SettingsTile(
                       backgroundColor: tileColor,
                       title: "Default SMS app",

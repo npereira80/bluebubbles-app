@@ -29,6 +29,10 @@ mise.toml
 .pub-cache/
 .pub/
 /build/
+android/build/
+android/.gradle/
+ios/Flutter/ephemeral/
+macos/Flutter/ephemeral/
 pubspeck.lock
 
 # Web related

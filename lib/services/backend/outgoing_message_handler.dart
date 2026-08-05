@@ -4,6 +4,7 @@ import 'dart:collection';
 import 'package:bluebubbles/database/models.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/services/backend/interfaces/send_message_interface.dart';
+import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
 import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/services/isolates/global_isolate.dart';
 import 'package:bluebubbles/services/services.dart';
@@ -609,6 +610,14 @@ class OutgoingMessageHandler {
       } else if (message.associatedMessageGuid == null && msgSvcRegistered) {
         await MessagesSvc(c.guid).addNewMessage(hydrated);
       }
+
+      // TN fork: reflect an outgoing local SMS into the contact's paired iMessage
+      // chat (live-insert into an open merged thread + refresh list preview/sort).
+      if (message.associatedMessageGuid == null && ChatMerge.isOurSms(c)) {
+        ChatMerge.reflectSmsIntoPairedChat(
+            SmsService.canonAddress(c.chatIdentifier ?? ''), hydrated,
+            markUnread: false);
+      }
     }
     // Update ChatState immediately so the tile reflects the outgoing message(s)
     // before the queue dispatches the HTTP call.
@@ -832,15 +841,70 @@ class OutgoingMessageHandler {
     }
 
     try {
-      await SmsSvc.nativeSend(address, body, tempGuid);
       final int ts = m.dateCreated?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
+      if (SmsSvc.canSendSms.value) {
+        // This device can transmit (SIM ready, radio on): send over the radio.
+        await SmsSvc.nativeSend(address, body, tempGuid);
+        m.dateDelivered = DateTime.now();
+        unawaited(SmsSvc.recordOutgoing(address, body, ts));
+      } else {
+        // No SIM or airplane mode: relay through the server to the primary phone.
+        await SmsSvc.sendTextViaServer(address, body);
+      }
       m.guid = SmsService.smsGuid(isFromMe: true, address: address, body: body, dateMs: ts);
-      m.dateDelivered = DateTime.now();
       await _matchMessageWithExisting(c, tempGuid, m);
-      unawaited(SmsSvc.recordOutgoing(address, body, ts));
     } catch (e, s) {
       await _finalizeOutgoingFailure(c, m, tempGuid,
-          logMessage: 'Failed to send SMS via SIM', error: e, stack: s);
+          logMessage: 'Failed to send SMS', error: e, stack: s);
+    }
+  }
+
+  /// TN fork: send an SMS-chat attachment as an MMS. Uses the SIM directly when
+  /// this device has one, otherwise relays through the server to the primary
+  /// phone. The temp message + on-disk attachment were staged by prepAttachment.
+  Future<void> _sendLocalMms(Chat c, Message m, Attachment attachment) async {
+    final tempGuid = m.guid!;
+    final address = (c.participants.isNotEmpty ? c.participants.first.address : null) ??
+        c.chatIdentifier ??
+        (c.guid.contains(';-;') ? c.guid.split(';-;').last : c.guid);
+    final caption = m.text ?? '';
+
+    ChatsSvc.updateChat(c);
+    if (ChatsSvc.getChatState(c.guid)?.latestMessage.value?.guid == m.guid) {
+      ChatsSvc.updateChatLatestMessage(c.guid, m);
+    }
+
+    try {
+      final bytes = attachment.bytes ?? await File(attachment.path).readAsBytes();
+      final part = <String, dynamic>{
+        'bytes': bytes,
+        'mime': attachment.mimeType ?? 'application/octet-stream',
+        'name': attachment.transferName ?? 'attachment',
+      };
+      // Swap the temp GUID for the content GUID a later backfill would produce,
+      // so the provider-sourced copy dedups against this optimistic one.
+      final int ts = m.dateCreated?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
+      final sentGuid = SmsService.smsGuid(isFromMe: true, address: address, body: caption, dateMs: ts);
+      m.guid = sentGuid;
+      if (SmsSvc.canSendSms.value) {
+        // A native MMS send is asynchronous: the platform reports success or
+        // failure much later via MmsSentReceiver → onSentStatus, which stamps
+        // the bubble delivered or failed. Do NOT claim "delivered" up front, or
+        // a rejected send keeps showing as delivered. Insert the message first
+        // so onSentStatus can find it by GUID when the result arrives.
+        await _matchMessageWithExisting(c, tempGuid, m);
+        await SmsSvc.nativeSendMms([address], caption, [part], messageId: sentGuid);
+        SmsSvc.recordOutgoingMms();
+      } else {
+        // Server relay: the primary phone fulfills it and we can't observe the
+        // radio result, so treat a successful hand-off as delivered.
+        await SmsSvc.sendMmsViaServer(address, caption, [part]);
+        m.dateDelivered = DateTime.now();
+        await _matchMessageWithExisting(c, tempGuid, m);
+      }
+    } catch (e, s) {
+      await _finalizeOutgoingFailure(c, m, tempGuid,
+          logMessage: 'Failed to send MMS', error: e, stack: s);
     }
   }
 
@@ -892,6 +956,12 @@ class OutgoingMessageHandler {
   Future<void> sendAttachment(Chat c, Message m, bool isAudioMessage, Attachment? attachment) async {
     if (attachment == null) {
       throw StateError('Missing attachment for sendAttachment on message ${m.guid}');
+    }
+
+    // TN fork: attachments on an SMS-service chat go out as MMS over the SIM
+    // (or via the server relay if this device has no SIM), NOT the BB server.
+    if (c.isSMS && GetIt.I.isRegistered<SmsService>()) {
+      return _sendLocalMms(c, m, attachment);
     }
 
     // Save both GUIDs before any mutation — attachment.guid == m.guid by design

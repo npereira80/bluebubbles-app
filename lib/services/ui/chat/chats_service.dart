@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
+import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
+import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/app/layouts/chat_creator/chat_creator.dart';
 import 'package:bluebubbles/app/layouts/chat_creator/new_chat_creator.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/filters/chat_list_filters.dart';
@@ -129,6 +131,26 @@ class ChatsService {
     ChatListFilters? filters,
   }) {
     var chats = allChats;
+
+    // TN fork: collapse a contact's paired Android-SMS chat into their
+    // BlueBubbles (iMessage/Text-Forwarding) chat — one row per contact. Our
+    // `SMS;-;tn:` chat is hidden when a BB 1:1 chat exists for the same number;
+    // SMS-only contacts keep their own row. O(n): collect BB numbers, then filter.
+    {
+      final bbNumbers = <String>{};
+      for (final c in chats) {
+        if (ChatMerge.isOurSms(c)) continue;
+        final n = ChatMerge.oneOnOneNumber(c);
+        if (n != null) bbNumbers.add(n);
+      }
+      if (bbNumbers.isNotEmpty) {
+        chats = chats.where((e) {
+          if (!ChatMerge.isOurSms(e)) return true;
+          final n = ChatMerge.oneOnOneNumber(e);
+          return n == null || !bbNumbers.contains(n);
+        }).toList();
+      }
+    }
 
     // Apply archived filter
     if (showArchived != null) {
@@ -526,7 +548,18 @@ class ChatsService {
 
   /// Recalculate the global unread count based on all chat states
   void _recalculateUnreadCount() {
-    final count = chatStates.values.where((state) => state.hasUnreadMessage.value).length;
+    int count = 0;
+    for (final state in chatStates.values) {
+      if (!state.hasUnreadMessage.value) continue;
+      // A paired local SMS thread's unread is represented by its iMessage
+      // counterpart (which is what the list shows), so don't count it twice.
+      final chat = state.chat;
+      if (ChatMerge.isOurSms(chat)) {
+        final number = ChatMerge.oneOnOneNumber(chat);
+        if (number != null && ChatMerge.bbChatForNumber(number) != null) continue;
+      }
+      count++;
+    }
     if (unreadCount.value != count) {
       unreadCount.value = count;
     }
@@ -1012,8 +1045,23 @@ class ChatsService {
 
   /// Delete a chat with full UI cleanup and service state management.
   /// Set [deleteHandles] to true to also remove the chat's participant handles.
+  /// TN fork: when one of our local SMS threads is deleted, tell the server to
+  /// drop that conversation so the Mac and other Android devices remove it too.
+  /// Only our own SMS;-;tn: chats — deleting an iMessage thread never touches the
+  /// SMS server.
+  void _pushSmsChatDelete(Chat chat) {
+    if (!chat.guid.startsWith('SMS;-;tn:')) return;
+    if (!GetIt.I.isRegistered<SmsService>()) return;
+    if (SmsSvc.suppressServerDeletePush) return; // applying a remote deletion
+    final id = SmsService.serverConvId(chat.chatIdentifier ?? '');
+    if (id.isEmpty || id == '+') return;
+    unawaited(SmsSvc.deleteOnServer(conversationId: id));
+  }
+
   Future<void> deleteChat(Chat chat, {bool deleteHandles = false}) async {
     if (kIsWeb) return;
+
+    _pushSmsChatDelete(chat);
 
     // Handle active chat cleanup
     if (activeChat?.chat.guid == chat.guid) {
@@ -1107,6 +1155,8 @@ class ChatsService {
   Future<void> softDeleteChat(Chat chat) async {
     if (kIsWeb) return;
 
+    _pushSmsChatDelete(chat);
+
     // Handle active chat cleanup
     if (activeChat?.chat.guid == chat.guid) {
       NavigationSvc.closeAllConversationView(Get.context!);
@@ -1190,6 +1240,22 @@ class ChatsService {
 
     // Update service state
     updateChat(chat);
+
+    // TN fork: mirror SMS read-state to our server so the Mac and other Android
+    // devices reflect it. Only for phone-number (SMS-capable) chats; iMessage
+    // read-state is handled by the BlueBubbles server independently.
+    if (GetIt.I.isRegistered<SmsService>()) {
+      // Key read-state by the SAME address the message was ingested under. For
+      // our own SMS chats that's the chat identifier (which may be national
+      // format, e.g. "912388343", when the number couldn't be canonicalized to
+      // E.164). oneOnOneNumber returns null for any non-"+" number, so relying
+      // on it silently dropped read-state for those SMS-only threads. For a BB
+      // (iMessage/TF) chat, use the paired E.164 number as before.
+      final number = ChatMerge.isOurSms(chat)
+          ? (chat.chatIdentifier ?? '')
+          : (ChatMerge.oneOnOneNumber(chat) ?? '');
+      if (number.isNotEmpty) unawaited(SmsSvc.reportReadState(number, hasUnread));
+    }
 
     return chat;
   }

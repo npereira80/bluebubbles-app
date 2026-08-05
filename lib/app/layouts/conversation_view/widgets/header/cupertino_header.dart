@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:bluebubbles/app/layouts/conversation_details/conversation_details.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/header/header_widgets.dart';
+import 'package:bluebubbles/app/layouts/conversation_view/widgets/header/sms_mode_toggle.dart';
 import 'package:bluebubbles/app/components/avatars/contact_avatar_group_widget.dart';
 import 'package:bluebubbles/app/state/chat_state_scope.dart';
 import 'package:bluebubbles/app/wrappers/theme_switcher.dart';
@@ -22,6 +23,10 @@ class CupertinoHeader extends StatelessWidget implements PreferredSizeWidget {
   const CupertinoHeader({super.key, required this.controller});
 
   final ConversationViewController controller;
+
+  // Height of the box the SMS/iMessage chip is centered within. Matches the back
+  // button's 36px chevron so the chip's vertical center aligns with it.
+  static const double _kRightControlsBoxHeight = 44;
 
   // simulate apple's saturatioon
   static const List<double> darkMatrix = <double>[
@@ -157,9 +162,26 @@ class CupertinoHeader extends StatelessWidget implements PreferredSizeWidget {
                           ),
                         ),
                       ),
+                      // Right-side controls. The chip is centered inside a box the
+                      // same height as the back button's chevron and given the same
+                      // top offset, so its vertical center lines up with the back
+                      // button on the left. (Tune _kRightControlsBoxHeight if the
+                      // chip needs to nudge up/down a few px.)
                       Padding(
                           padding: const EdgeInsets.only(top: 5),
-                          child: Align(alignment: Alignment.topRight, child: ManualMark(controller: controller))),
+                          child: Align(
+                              alignment: Alignment.topRight,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  SizedBox(
+                                    height: _kRightControlsBoxHeight,
+                                    child: Center(child: SmsModeToggle(chat: controller.chat)),
+                                  ),
+                                  ManualMark(controller: controller),
+                                ],
+                              ))),
                     ]),
                   ),
                 ),

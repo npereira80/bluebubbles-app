@@ -8,7 +8,10 @@ import 'package:bluebubbles/app/components/custom_text_editing_controllers.dart'
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/message/misc/tail_clipper.dart';
 import 'package:bluebubbles/app/wrappers/stateful_boilerplate.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
+import 'package:bluebubbles/utils/logger/logger.dart';
 import 'package:bluebubbles/database/models.dart';
+import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
+import 'package:bluebubbles/services/backend/sms/sms_send_mode.dart';
 import 'package:bluebubbles/app/state/message_state.dart';
 import 'package:bluebubbles/services/services.dart';
 import 'package:bluebubbles/services/ui/chat/send_data.dart';
@@ -126,6 +129,21 @@ class _SendAnimationState extends CustomState<SendAnimation, SendData, Conversat
   Future<void> send(SendData data) async {
     // do not add anything above this line, the attachments must be extracted first
     final attachments = List<PlatformFile>.from(data.attachments);
+    // TN fork: when the header toggle is set to SMS (green arrow), route the
+    // outgoing message to the contact's local SMS chat so OutgoingMessageHandler
+    // dispatches it over the SIM (_sendLocalSms) instead of iMessage. Falls back
+    // to the current chat when SMS isn't applicable.
+    // Route to the contact's SMS chat (→ SIM SMS/MMS) when the visible chat is
+    // already SMS/Text-Forwarding, is our own SMS chat, or the header toggle is
+    // set to SMS. Otherwise keep the current (iMessage) chat. This makes an
+    // attachment follow the same SMS/iMessage choice as text instead of always
+    // going out over iMessage.
+    final bool wantSms = ChatMerge.isOurSms(controller.chat) ||
+        controller.chat.isSMS ||
+        SmsSendMode.isSms(controller.chat.guid);
+    final Chat sendChat = wantSms
+        ? (ChatMerge.smsSendChat(controller.chat) ?? controller.chat)
+        : controller.chat;
     // text is mutable — reassigned during mention processing below
     String text = data.text;
     // Hide the smart reply row immediately, before the send animation's target
@@ -188,7 +206,7 @@ class _SendAnimationState extends CustomState<SendAnimation, SendData, Conversat
       attachment.guid = message.guid;
       await OutgoingMsgHandler.queue(
         OutgoingAttachment(
-          chat: controller.chat,
+          chat: sendChat,
           message: message,
           attachment: attachment,
           isAudioMessage: data.isAudioMessage,
@@ -261,11 +279,11 @@ class _SendAnimationState extends CustomState<SendAnimation, SendData, Conversat
       OutgoingMsgHandler.queue(
         (_message.attributedBody.isNotEmpty)
             ? OutgoingMultipartMessage(
-                chat: controller.chat,
+                chat: sendChat,
                 message: _message,
               )
             : OutgoingMessage(
-                chat: controller.chat,
+                chat: sendChat,
                 message: _message,
               ),
       );

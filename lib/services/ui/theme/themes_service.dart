@@ -82,14 +82,30 @@ class ThemesService {
     _refreshMaterialYouThemePresets();
   }
 
+  /// TN fork: brand blue, matching the app icon (and the Mac + watch apps).
+  static const brandBlue = Color(0xFF2563EB);
+
+  /// Material 3's `fromSeed` maps a seed onto a tonal palette, which turns our
+  /// blue into a muted navy — visibly off-brand on the accent surfaces (compose
+  /// FAB, segmented tabs). Pin the primary roles to the exact brand colour while
+  /// letting everything else stay tonally derived.
+  static ColorScheme _brandAccented(ColorScheme scheme) => scheme.copyWith(
+        primary: brandBlue,
+        onPrimary: Colors.white,
+        primaryContainer: brandBlue,
+        onPrimaryContainer: Colors.white,
+      );
+
   static final oledDarkTheme = FlexColorScheme(
     textTheme: Typography.englishLike2021.merge(Typography.whiteMountainView),
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: Colors.blue,
-      surface: Colors.black,
-      surfaceContainerHighest: HexColor("323332"),
-      error: Colors.red,
-      brightness: Brightness.dark,
+    colorScheme: _brandAccented(
+      ColorScheme.fromSeed(
+        seedColor: brandBlue,
+        surface: Colors.black,
+        surfaceContainerHighest: HexColor("323332"),
+        error: Colors.red,
+        brightness: Brightness.dark,
+      ),
     ),
     useMaterial3: true,
   ).toTheme.copyWith(splashFactory: InkSparkle.splashFactory, extensions: [
@@ -134,17 +150,19 @@ class ThemesService {
   static final whiteLightTheme = () {
     final base = FlexColorScheme(
       textTheme: Typography.englishLike2021.merge(Typography.blackMountainView),
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: Colors.blue,
-        surface: Colors.white,
-        error: Colors.red,
-        brightness: Brightness.light,
+      colorScheme: _brandAccented(
+        ColorScheme.fromSeed(
+          seedColor: brandBlue,
+          surface: Colors.white,
+          error: Colors.red,
+          brightness: Brightness.light,
+        ),
       ),
       useMaterial3: true,
     ).toTheme;
     return base.copyWith(
       splashFactory: InkSparkle.splashFactory,
-      colorScheme: base.colorScheme.copyWith(
+      colorScheme: _brandAccented(base.colorScheme).copyWith(
         surface: Colors.white,
         surfaceContainerHighest: HexColor('F2F2F6'),
       ),

@@ -1,5 +1,6 @@
 import 'package:bluebubbles/app/layouts/conversation_details/conversation_details.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/header/header_widgets.dart';
+import 'package:bluebubbles/app/layouts/conversation_view/widgets/header/sms_mode_toggle.dart';
 import 'package:bluebubbles/app/components/avatars/contact_avatar_group_widget.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/message/reply/reply_thread_popup.dart';
 import 'package:bluebubbles/app/state/chat_state_scope.dart';
@@ -94,6 +95,10 @@ class MaterialHeader extends StatelessWidget implements PreferredSizeWidget {
               ),
             ),
             actions: [
+              Padding(
+                padding: EdgeInsets.only(top: kIsDesktop ? 20 : 0, right: 4),
+                child: SmsModeToggle(chat: controller.chat),
+              ),
               Padding(
                 padding: EdgeInsets.only(top: kIsDesktop ? 20 : 0),
                 child: ManualMark(controller: controller),

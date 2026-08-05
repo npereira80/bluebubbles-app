@@ -3,6 +3,9 @@ import 'dart:io';
 
 import 'package:bluebubbles/app/state/attachment_state.dart';
 import 'package:bluebubbles/app/state/message_state.dart';
+import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
+import 'package:bluebubbles/services/backend/sms/sms_service.dart';
+import 'package:get_it/get_it.dart';
 import 'package:bluebubbles/helpers/types/extensions/extensions.dart';
 import 'package:bluebubbles/helpers/types/constants.dart';
 import 'package:bluebubbles/database/models.dart';
@@ -65,6 +68,8 @@ class MessagesService extends GetxController {
 
   bool _init = false;
   bool messagesLoaded = false;
+  // TN fork: whether the paired Android-SMS chat's messages have been merged in.
+  bool _pairedSmsLoaded = false;
   String? method;
 
   /// The view (State) currently driving this service. When a second
@@ -1263,9 +1268,36 @@ class MessagesService extends GetxController {
   /// in both the database and reactive state.
   Future<void> deleteMessage(Message message) async {
     final deletedGuid = message.guid!;
+    await _pushSmsDelete(message);   // read attachment bytes before they're removed
     await Message.delete(deletedGuid);
     removeMessage(message);
     await _updateLatestMessageAfterDeletion(deletedGuid);
+  }
+
+  /// TN fork: when an SMS/MMS message is deleted locally, propagate the deletion
+  /// to our server (by cross-device content hash) so the Mac and other Android
+  /// devices remove it too. No-op for iMessage messages. Async because an MMS
+  /// hash needs the attachment bytes read from disk.
+  Future<void> _pushSmsDelete(Message message) async {
+    if (!message.isFromSms) return;
+    if (!GetIt.I.isRegistered<SmsService>()) return;
+    final chat = ChatsSvc.findChatByGuid(tag);
+    // Use the SAME address the message was ingested under so the content hash
+    // matches the server's. For our SMS chats that's the chat identifier (may be
+    // national format); oneOnOneNumber would return null for those and skip the
+    // delete entirely. For a BB chat, use the paired E.164 number.
+    final number = chat == null
+        ? null
+        : (ChatMerge.isOurSms(chat) ? chat.chatIdentifier : ChatMerge.oneOnOneNumber(chat));
+    if (number == null || number.isEmpty) return;
+    final dateMs = message.dateCreated?.millisecondsSinceEpoch ?? 0;
+    final body = message.text ?? '';
+    // MMS folds attachment hashes into its identity, so this reads them.
+    final hash = await SmsService.deleteContentHashFor(message, number);
+    // Propagate to the server (other devices) AND remove it from the Android
+    // Telephony provider so a re-backfill/full re-sync doesn't resurrect it.
+    unawaited(SmsSvc.deleteOnServer(messageHashes: [hash]));
+    unawaited(SmsSvc.deleteFromProvider(dateMs: dateMs, body: body));
   }
 
   /// Soft-delete a message (sets dateDeleted) and remove it from the struct and MessageState.
@@ -1273,6 +1305,7 @@ class MessagesService extends GetxController {
   /// in both the database and reactive state.
   Future<void> softDeleteMessage(Message message) async {
     final deletedGuid = message.guid!;
+    await _pushSmsDelete(message);
     await Message.softDelete(deletedGuid);
     removeMessage(message);
     await _updateLatestMessageAfterDeletion(deletedGuid);
@@ -1513,7 +1546,9 @@ class MessagesService extends GetxController {
       );
 
       Logger.debug("[loadChunk] Loaded ${_messages.length} messages from local DB");
-      if (_messages.isEmpty) {
+      // TN fork: our local Android-SMS chats have no BlueBubbles-server backing,
+      // so never fall back to the server for them (that hangs "Loading more…").
+      if (_messages.isEmpty && !ChatMerge.isOurSms(chat)) {
         // get from server and save
         final fromServer = await ChatsSvc.getMessages(chat.guid, offset: offset, limit: limit);
         final rawMessages = fromServer.cast<Map<String, dynamic>>();
@@ -1577,6 +1612,13 @@ class MessagesService extends GetxController {
     _ensureMessageStates(_messages);
     Logger.debug("[loadChunk] Created MessageStates for ${_messages.length} messages", tag: "MessageState");
 
+    // TN fork: on first load, merge in the contact's paired Android-SMS chat so
+    // the thread shows iMessage (blue) + SMS (green) interleaved by date.
+    if (!_pairedSmsLoaded) {
+      _pairedSmsLoaded = true;
+      await _mergePairedSmsMessages();
+    }
+
     // Compute initial delivered indicator ownership after messages are loaded.
     _recomputeDeliveredIndicators();
 
@@ -1607,6 +1649,25 @@ class MessagesService extends GetxController {
 
     messagesLoaded = true;
     return _messages.isNotEmpty;
+  }
+
+  /// TN fork: merge the contact's paired Android-SMS chat messages into this
+  /// thread (read-only; the SMS chat record is untouched). Loads the whole
+  /// paired thread once — one contact's SMS volume is modest — and the struct
+  /// sorts by date so iMessage (blue) and SMS (green) interleave.
+  Future<void> _mergePairedSmsMessages() async {
+    try {
+      final paired = ChatMerge.pairedChat(chat);
+      // Only merge OUR local SMS chat into a BlueBubbles (iMessage/TF) thread.
+      if (paired == null || !ChatMerge.isOurSms(paired)) return;
+      final smsMessages = await Chat.getMessagesAsync(paired, offset: 0, limit: 1000);
+      if (smsMessages.isEmpty) return;
+      struct.addMessages(smsMessages);
+      _ensureMessageStates(smsMessages);
+      Logger.info("[loadChunk] Merged ${smsMessages.length} paired SMS messages from ${paired.guid}");
+    } catch (e, s) {
+      Logger.error("Failed to merge paired SMS messages: $e", trace: s);
+    }
   }
 
   Future<void> loadSearchChunk(Message around, SearchMethod method) async {

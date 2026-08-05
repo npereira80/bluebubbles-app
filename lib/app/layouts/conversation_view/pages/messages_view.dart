@@ -599,6 +599,10 @@ class MessagesViewState extends State<MessagesView> with MessagesServiceMixin, T
                         reverse: true,
                         physics: ThemeSwitcher.getScrollPhysics(),
                         slivers: <Widget>[
+                          // TN fork: breathing room between the newest message and
+                          // the composer / "can't reply" bar (list is reversed, so
+                          // this spacer sits at the visual bottom).
+                          const SliverToBoxAdapter(child: SizedBox(height: 20)),
                           SliverToBoxAdapter(
                             child: SmartRepliesRow(
                               controller: controller,

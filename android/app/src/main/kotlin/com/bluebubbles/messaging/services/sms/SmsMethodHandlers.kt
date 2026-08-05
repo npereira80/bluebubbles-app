@@ -101,6 +101,17 @@ class SmsDeleteHandler : MethodCallHandlerImpl() {
     }
 }
 
+/** Delete provider rows matching date+body (used when a message is deleted in
+ *  the UI, so backfill doesn't resurrect it). Args: date:Number, body:String. */
+class SmsDeleteMatchHandler : MethodCallHandlerImpl() {
+    companion object { const val tag = "sms-delete-match" }
+    override fun handleMethodCall(call: MethodCall, result: MethodChannel.Result, context: Context) {
+        val date = call.argument<Number>("date")?.toLong() ?: 0L
+        val body = call.argument<String>("body") ?: ""
+        result.success(SmsProvider.deleteMatching(context, date, body))
+    }
+}
+
 /** SIM presence + key. */
 class SmsSimInfoHandler : MethodCallHandlerImpl() {
     companion object { const val tag = "sms-sim-info" }

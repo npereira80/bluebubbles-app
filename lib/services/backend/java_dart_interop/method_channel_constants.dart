@@ -21,4 +21,5 @@ abstract class MethodChannelInboundMethods {
   // TN Messages fork — local Android SMS
   static const String smsReceived = 'sms-received';
   static const String smsSentStatus = 'sms-sent-status';
+  static const String mmsReceived = 'mms-received';
 }

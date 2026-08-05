@@ -123,6 +123,7 @@ Future<Null> initApp(bool bubble, List<String> arguments) async {
       /* ----- SPLASH SCREEN INITIALIZATION ----- */
       if (!SettingsSvc.settings.finishedSetup.value && !kIsWeb && !kIsDesktop) {
         runApp(MaterialApp(
+            debugShowCheckedModeBanner: false,
             home: const SplashScreen(shouldNavigate: false),
             theme: ThemeData(
               colorScheme: ColorScheme.fromSwatch(
@@ -230,6 +231,7 @@ Future<Null> initApp(bool bubble, List<String> arguments) async {
       dark = pair.dark;
 
       runApp(MaterialApp(
+          debugShowCheckedModeBanner: false,
           home: Main(
         lightTheme: light,
         darkTheme: dark,
@@ -517,8 +519,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TrayListener {
 
       ErrorWidget.builder = (FlutterErrorDetails error) {
         Logger.error("An unexpected error occurred when rendering.", error: error.exception, trace: error.stack);
+        // TN fork (temporary): surface the real exception + stack in the error
+        // card so "Copy Details" is actionable while we track down SMS composer
+        // crashes. Revert to a generic message before release.
         return CustomErrorWidget(
-          "An unexpected error occurred when rendering.",
+          error.exception,
+          stackTrace: error.stack,
         );
       };
       /* ----- SERVER VERSION CHECK ----- */

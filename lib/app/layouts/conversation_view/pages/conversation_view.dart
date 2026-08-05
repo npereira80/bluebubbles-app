@@ -6,6 +6,7 @@ import 'package:bluebubbles/app/state/chat_state_scope.dart';
 import 'package:bluebubbles/app/wrappers/bb_scaffold.dart';
 import 'package:bluebubbles/app/wrappers/gradient_background_wrapper.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
+import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/pages/messages_view.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/effects/screen_effects_widget.dart';
 import 'package:bluebubbles/database/models.dart';
@@ -148,12 +149,18 @@ class ConversationViewState extends State<ConversationView> with ThemeHelpers<Co
                         ],
                       ),
                     ),
-                    GestureDetector(
-                      onPanUpdate: _onPanUpdate,
-                      child: ConversationTextField(
-                        parentController: controller,
+                    // SMS from alphanumeric sender IDs (banks, OTP codes) can't
+                    // receive replies — show a read-only notice instead of the
+                    // composer, which otherwise errors when you try to type.
+                    if (ChatMerge.isReadOnlySms(chat))
+                      const _ReadOnlySmsBar()
+                    else
+                      GestureDetector(
+                        onPanUpdate: _onPanUpdate,
+                        child: ConversationTextField(
+                          parentController: controller,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               );
@@ -277,6 +284,43 @@ class ConversationViewState extends State<ConversationView> with ThemeHelpers<Co
           ),
         );
       }),
+    );
+  }
+}
+
+/// Composer replacement for read-only SMS threads (alphanumeric sender IDs like
+/// banks / OTP services). SMS can't be delivered to a sender ID, so instead of
+/// the text field — which errors on input — we show a non-interactive notice.
+class _ReadOnlySmsBar extends StatelessWidget {
+  const _ReadOnlySmsBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        decoration: BoxDecoration(
+          color: context.theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          border: Border(
+            top: BorderSide(color: context.theme.colorScheme.outlineVariant.withValues(alpha: 0.3), width: 0.5),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.info_outline, size: 18, color: context.theme.colorScheme.outline),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                "You can't reply to this sender",
+                style: context.theme.textTheme.bodyMedium?.copyWith(color: context.theme.colorScheme.outline),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -30,12 +30,17 @@ import com.bluebubbles.messaging.services.foreground.StartForegroundServiceHandl
 import com.bluebubbles.messaging.services.foreground.StopForegroundServiceHandler
 import com.bluebubbles.messaging.services.sms.SmsCountHandler
 import com.bluebubbles.messaging.services.sms.SmsDeleteHandler
+import com.bluebubbles.messaging.services.sms.SmsDeleteMatchHandler
 import com.bluebubbles.messaging.services.sms.SmsIsDefaultHandler
 import com.bluebubbles.messaging.services.sms.SmsMarkReadHandler
 import com.bluebubbles.messaging.services.sms.SmsQueryHandler
 import com.bluebubbles.messaging.services.sms.SmsRequestDefaultHandler
 import com.bluebubbles.messaging.services.sms.SmsSendHandler
 import com.bluebubbles.messaging.services.sms.SmsSimInfoHandler
+import com.bluebubbles.messaging.services.sms.MmsQueryHandler
+import com.bluebubbles.messaging.services.sms.MmsPartBytesHandler
+import com.bluebubbles.messaging.services.sms.MmsSendHandler
+import com.bluebubbles.messaging.services.sms.MmsDeleteHandler
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
@@ -146,7 +151,12 @@ class MethodCallHandler {
             SmsSendHandler.tag -> SmsSendHandler().handleMethodCall(call, result, context)
             SmsMarkReadHandler.tag -> SmsMarkReadHandler().handleMethodCall(call, result, context)
             SmsDeleteHandler.tag -> SmsDeleteHandler().handleMethodCall(call, result, context)
+            SmsDeleteMatchHandler.tag -> SmsDeleteMatchHandler().handleMethodCall(call, result, context)
             SmsSimInfoHandler.tag -> SmsSimInfoHandler().handleMethodCall(call, result, context)
+            MmsQueryHandler.tag -> MmsQueryHandler().handleMethodCall(call, result, context)
+            MmsPartBytesHandler.tag -> MmsPartBytesHandler().handleMethodCall(call, result, context)
+            MmsSendHandler.tag -> MmsSendHandler().handleMethodCall(call, result, context)
+            MmsDeleteHandler.tag -> MmsDeleteHandler().handleMethodCall(call, result, context)
             else -> {
                 val error = "Could not find method call handler for ${call.method}!"
                 PersistentLog.d(context, Constants.logTag, error)

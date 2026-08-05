@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Advertised so the TN Watch app can discover this phone as its config
+         provider via the Wearable CapabilityClient. -->
+    <string-array name="android_wear_capabilities">
+        <item>tnwatch_config_provider</item>
+    </string-array>
+</resources>

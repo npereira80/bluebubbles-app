@@ -10,10 +10,13 @@ class SendButton extends StatefulWidget {
     super.key,
     required this.onLongPress,
     required this.sendMessage,
+    this.sendAsSms = false,
   });
 
   final Function() onLongPress;
   final Function() sendMessage;
+  // TN fork: when true, the arrow is green (send-as-SMS mode).
+  final bool sendAsSms;
 
   @override
   SendButtonState createState() => SendButtonState();
@@ -34,7 +37,9 @@ class SendButtonState extends State<SendButton> with SingleTickerProviderStateMi
   late Color _materialIconColor;
   late Color _onError;
 
-  Color get baseColor => iOS ? _iosBaseColor : _materialBaseColor;
+  Color get baseColor => widget.sendAsSms
+      ? context.theme.colorScheme.bubble(context, false) // green (SMS)
+      : (iOS ? _iosBaseColor : _materialBaseColor);
 
   @override
   void initState() {
@@ -71,7 +76,7 @@ class SendButtonState extends State<SendButton> with SingleTickerProviderStateMi
       },
       child: TextButton(
         style: TextButton.styleFrom(
-          backgroundColor: iOS ? _iosBaseColor : null,
+          backgroundColor: iOS ? baseColor : null,
           shape: const CircleBorder(),
           padding: const EdgeInsets.all(0),
           maximumSize: const Size(32, 32),

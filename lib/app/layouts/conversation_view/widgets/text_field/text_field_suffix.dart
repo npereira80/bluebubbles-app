@@ -3,6 +3,8 @@ import 'package:bluebubbles/app/components/custom_text_editing_controllers.dart'
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/effects/send_effect_picker.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/message/attachment/audio_player.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/text_field/send_button.dart';
+import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
+import 'package:bluebubbles/services/backend/sms/sms_send_mode.dart';
 import 'package:bluebubbles/app/wrappers/cupertino_icon_wrapper.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/database/models.dart';
@@ -133,25 +135,38 @@ class _TextFieldSuffixState extends State<TextFieldSuffix> with ThemeHelpers {
                 audioRecorder: audioRecorder,
                 onDeleteRecording: deleteAudioRecording,
               ),
-              secondChild: SendButton(
-                sendMessage: widget.sendMessage,
-                onLongPress: () {
-                  if (widget.controller!.scheduledDate.value != null) return;
-                  sendEffectAction(
-                    context,
-                    widget.controller!,
-                    widget.textController.text.trim(),
-                    widget.subjectTextController?.text.trim() ?? "",
-                    widget.controller!.replyToMessage?.message.guid,
-                    widget.controller!.replyToMessage?.partIndex,
-                    widget.controller!.chat.guid,
-                    widget.sendMessage,
-                    widget.textController is MentionTextEditingController
-                        ? (widget.textController as MentionTextEditingController).mentionables
-                        : [],
-                  );
-                },
-              ),
+              secondChild: Obx(() {
+                // Recolor reactively when the header toggle flips SMS/iMessage.
+                // A pure SMS chat is always green (there's no iMessage side).
+                // NB: read the observable (SmsSendMode) FIRST — putting it after
+                // `||` lets the short-circuit skip it, leaving this Obx with no
+                // reactive dependency (GetX then throws "improper use of Obx").
+                final chat = widget.controller!.chat;
+                final toggledSms = SmsSendMode.isSms(chat.guid);
+                final sendAsSms = ChatMerge.isOurSms(chat) || toggledSms;
+                return SendButton(
+                  sendAsSms: sendAsSms,
+                  sendMessage: widget.sendMessage,
+                  onLongPress: () {
+                    // SMS mode (green) does not support send effects.
+                    if (sendAsSms) return;
+                    if (widget.controller!.scheduledDate.value != null) return;
+                    sendEffectAction(
+                      context,
+                      widget.controller!,
+                      widget.textController.text.trim(),
+                      widget.subjectTextController?.text.trim() ?? "",
+                      widget.controller!.replyToMessage?.message.guid,
+                      widget.controller!.replyToMessage?.partIndex,
+                      widget.controller!.chat.guid,
+                      widget.sendMessage,
+                      widget.textController is MentionTextEditingController
+                          ? (widget.textController as MentionTextEditingController).mentionables
+                          : [],
+                    );
+                  },
+                );
+              }),
             ),
           );
         });
