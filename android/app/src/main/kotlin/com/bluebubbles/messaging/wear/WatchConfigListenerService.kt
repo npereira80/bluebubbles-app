@@ -23,6 +23,9 @@ class WatchConfigListenerService : WearableListenerService() {
                 val key = String(event.data).trim()
                 if (key.isNotEmpty()) WatchAvatarSync.pushOne(applicationContext, key)
             }
+            // The watch has no usable network of its own (typically off Wi-Fi):
+            // run its HTTP request here, on the phone's connection.
+            HTTP_PATH -> WatchHttpRelay.handle(applicationContext, event.data)
         }
     }
 
@@ -30,5 +33,6 @@ class WatchConfigListenerService : WearableListenerService() {
         const val REQUEST_PATH = "/tnwatch/request-config"
         const val AVATARS_PATH = "/tnwatch/request-avatars"
         const val ONE_AVATAR_PATH = "/tnwatch/avatar-request"
+        const val HTTP_PATH = "/tnwatch/http"
     }
 }
