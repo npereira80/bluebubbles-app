@@ -142,20 +142,26 @@ class GarminSnapshot {
       final smsChat = isSms ? chat : paired;
       final bbChat = isSms ? paired : chat;
 
+      // Preview comes from the merged thread, not from `chat` alone: for a
+      // contact reachable on both services the newest message may sit on the
+      // other side of the pair.
+      final thread = _messagesFor(smsChat, bbChat);
+      final newest = thread.isNotEmpty ? thread.last : null;
+
       chats.add({
         'k': key,
         'n': _title(chat),
         'a': smsChat?.chatIdentifier ?? ChatMerge.oneOnOneNumber(chat) ?? key,
-        's': _trim(chat.latestMessage?.text ?? '', 48),
-        't': chat.latestMessage?.dateCreated?.millisecondsSinceEpoch ?? 0,
-        'u': (chat.hasUnreadMessage ?? false) ? 1 : 0,
+        's': _trim(_preview(newest), 48),
+        't': newest?['t'] as int? ?? _latestDate(chat),
+        'u': _isUnread(smsChat) || _isUnread(bbChat) ? 1 : 0,
         // Which services can answer this thread.
         'sms': smsChat != null ? 1 : 0,
         'im': (bbChat != null && bbChat.isIMessage) ? 1 : 0,
         if (bbChat != null) 'g': bbChat.guid,
       });
 
-      messages[key] = _messagesFor(smsChat, bbChat);
+      messages[key] = thread;
     }
 
     return {'chats': chats, 'messages': messages};
@@ -188,10 +194,23 @@ class GarminSnapshot {
         'd': m.isFromMe == true ? 1 : 0,
         'b': _trim(text, bodyLimit),
         't': m.dateCreated?.millisecondsSinceEpoch ?? 0,
-        if (m.attachments.isNotEmpty && text.isEmpty) 'p': 1,
+        if (m.hasAttachments && text.isEmpty) 'p': 1,
       };
     }).toList();
   }
+
+  /// "[foto]" rather than an empty row when the newest message is an image.
+  static String _preview(Map<String, dynamic>? newest) {
+    if (newest == null) return '';
+    final body = (newest['b'] as String? ?? '').trim();
+    if (body.isNotEmpty) return body;
+    return newest['p'] == 1 ? '[foto]' : '';
+  }
+
+  static int _latestDate(Chat chat) =>
+      chat.dbOnlyLatestMessageDate?.millisecondsSinceEpoch ?? 0;
+
+  static bool _isUnread(Chat? chat) => chat?.hasUnreadMessage ?? false;
 
   static String _title(Chat chat) {
     final title = chat.getTitle();
