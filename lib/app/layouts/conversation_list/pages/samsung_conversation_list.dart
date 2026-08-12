@@ -1,6 +1,7 @@
 import 'package:bluebubbles/app/components/sliver_decoration.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/pages/conversation_list.dart';
+import 'package:bluebubbles/app/layouts/conversation_list/widgets/chat_list_refresh.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/conversation_list_fab.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/filters/custom_group_filter_chip_row.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/footer/samsung_footer.dart';
@@ -100,10 +101,11 @@ class _SamsungConversationListState extends State<SamsungConversationList> with 
                 final _pinnedChats = _chats.where((e) => e.isPinned ?? false).toList();
                 final _unpinnedChats = _chats.where((e) => !(e.isPinned ?? false)).toList();
 
-                return CustomScrollView(
-                  physics: ThemeSwitcher.getScrollPhysics(),
-                  controller: controller.samsungScrollController,
-                  slivers: [
+                return ChatListRefreshWrapper(
+                  child: CustomScrollView(
+                    physics: ThemeSwitcher.getScrollPhysics(),
+                    controller: controller.samsungScrollController,
+                    slivers: [
                     SamsungHeader(parentController: controller),
                     if (!showArchived && !showUnknown)
                       const SliverToBoxAdapter(
@@ -177,7 +179,8 @@ class _SamsungConversationListState extends State<SamsungConversationList> with 
                         ),
                       ),
                     ),
-                  ],
+                    ],
+                  ),
                 );
               }),
             ),

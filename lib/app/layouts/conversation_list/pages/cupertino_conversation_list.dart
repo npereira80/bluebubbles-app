@@ -4,6 +4,7 @@ import 'package:bluebubbles/database/models.dart';
 import 'package:bluebubbles/app/wrappers/bb_app_bar.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/pages/conversation_list.dart';
+import 'package:bluebubbles/app/layouts/conversation_list/widgets/chat_list_refresh.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/tile/conversation_tile.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/tile/pinned_conversation_tile.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/conversation_list_fab.dart';
@@ -81,6 +82,8 @@ class CupertinoConversationListState extends State<CupertinoConversationList> wi
                   physics: ThemeSvc.scrollPhysics,
                   slivers: <Widget>[
                     if (!showArchived && !showUnknown) CupertinoHeader(controller: controller),
+                    // Pull down to sync SMS now instead of waiting for the next pass.
+                    const ChatListCupertinoRefresh(),
                     if (!showArchived && !showUnknown)
                       const SliverToBoxAdapter(child: CustomGroupFilterChipRow()),
                     Obx(() {

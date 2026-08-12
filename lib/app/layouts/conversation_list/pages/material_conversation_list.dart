@@ -1,5 +1,6 @@
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/pages/conversation_list.dart';
+import 'package:bluebubbles/app/layouts/conversation_list/widgets/chat_list_refresh.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/conversation_list_fab.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/filters/custom_group_filter_chip_row.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/header/material_header.dart';
@@ -125,10 +126,11 @@ class _MaterialConversationListState extends State<MaterialConversationList> {
                       }
                       return true;
                     },
-                    child: ScrollbarWrapper(
-                      showScrollbar: true,
-                      controller: controller.materialScrollController,
-                      child: Obx(() => ListView.builder(
+                    child: ChatListRefreshWrapper(
+                      child: ScrollbarWrapper(
+                        showScrollbar: true,
+                        controller: controller.materialScrollController,
+                        child: Obx(() => ListView.builder(
                             controller: controller.materialScrollController,
                             physics: ThemeSwitcher.getScrollPhysics(),
                             padding: const EdgeInsets.only(top: 8),
@@ -146,6 +148,7 @@ class _MaterialConversationListState extends State<MaterialConversationList> {
                             },
                             itemCount: _chats.length,
                           )),
+                      ),
                     ),
                   );
                 }
