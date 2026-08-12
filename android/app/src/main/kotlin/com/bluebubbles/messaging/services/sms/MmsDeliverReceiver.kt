@@ -44,7 +44,7 @@ class MmsDeliverReceiver : BroadcastReceiver() {
             Log.w(Constants.logTag, "MMS: notification carried no content location")
             return
         }
-        Log.i(Constants.logTag, "MMS: incoming notification, downloading from $location")
+        Log.i(Constants.logTag, "MMS: incoming notification, downloading")
 
         // A file the telephony stack writes the retrieved PDU into.
         val dir = File(context.cacheDir, "mms").apply { mkdirs() }

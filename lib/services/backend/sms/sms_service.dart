@@ -104,9 +104,7 @@ class SmsService {
       await _loadConfig();
       await SmsSendMode.load();
       await refreshStatus();
-      Logger.info('SmsService: default=${isDefaultSmsApp.value}, '
-          'permissions=${hasSmsPermissions.value ? 'granted' : 'MISSING ${missingSmsPermissions.join(',')}'}, '
-          'serverConfigured=$serverConfigured');
+      Logger.info('SmsService: default=${isDefaultSmsApp.value}, serverConfigured=$serverConfigured');
 
       // One-time recovery: pull our injected SMS out of BlueBubbles' server
       // chats (namespace collision) so they re-import into our own `SMS;-;tn:`

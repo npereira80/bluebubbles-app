@@ -4,8 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
-import android.util.Log
-import com.bluebubbles.messaging.Constants
 import com.bluebubbles.messaging.services.backend_ui_interop.MethodCallHandler
 
 /**
@@ -25,7 +23,6 @@ class SmsDeliverReceiver : BroadcastReceiver() {
         val date = System.currentTimeMillis()
 
         val providerId = SmsProvider.insertInbox(context, address, body, date)
-        Log.d(Constants.logTag, "SMS_DELIVER from $address (${body.length} chars) -> id $providerId")
 
         // Post a notification natively so it fires even if the Flutter engine
         // isn't alive (app killed/background).

@@ -95,7 +95,7 @@ object MmsSender {
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-        Log.i(Constants.logTag, "MmsSender: sending MMS to ${addresses.joinToString()} " +
+        Log.i(Constants.logTag, "MmsSender: sending MMS to ${addresses.size} recipient(s) " +
             "(${media.size} media, ${pduBytes.size} bytes PDU, subId=$subId)")
         sms.sendMultimediaMessage(context, contentUri, null, null, sentPI)
     }

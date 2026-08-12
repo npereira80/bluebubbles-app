@@ -46,7 +46,7 @@ object SmsSender {
                 val pis = ArrayList<PendingIntent>(parts.size).apply { repeat(parts.size) { add(sentPI) } }
                 sms.sendMultipartTextMessage(address, null, parts, pis, null)
             }
-            Log.i(Constants.logTag, "SmsSender: sending $messageId to $address (${parts.size} part(s))")
+            Log.i(Constants.logTag, "SmsSender: sending $messageId (${parts.size} part(s))")
         } catch (e: Exception) {
             Log.e(Constants.logTag, "SmsSender: send failed for $messageId", e)
         }

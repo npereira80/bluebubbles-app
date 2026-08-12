@@ -116,11 +116,39 @@ class FirebaseDatabaseService extends GetxService {
         url = sanitizeServerAddress(address: await MethodChannelSvc.actions.getServerUrl());
       }
 
-      await saveNewServerUrl(url ?? SettingsSvc.settings.serverAddress.value, force: true);
+      // Only adopt what Firebase hands us if it actually answers. Firebase holds
+      // whatever URL the server last published, which goes stale the moment a
+      // tunnel address rotates or the server can't write its new one. Adopting it
+      // blindly replaced a working, hand-entered address with a dead one on the
+      // first socket hiccup, and the app could never get back — reinstalling
+      // didn't help, because the stale value is refetched every time.
+      if (url != null && url != SettingsSvc.settings.serverAddress.value) {
+        if (await _urlResponds(url)) {
+          await saveNewServerUrl(url, force: true);
+        } else {
+          Logger.warn('Ignoring server URL from Firebase ($url): it did not '
+              'respond, keeping ${SettingsSvc.settings.serverAddress.value}');
+          return null;
+        }
+      }
       return url;
     } catch (e, s) {
       Logger.error("Failed to fetch URL!", error: e, trace: s);
       return null;
+    }
+  }
+
+  /// Whether a candidate server URL answers a ping. Short timeout: this runs on
+  /// the socket's reconnect path, where a long wait just delays recovery.
+  Future<bool> _urlResponds(String url) async {
+    try {
+      final res = await HttpSvc.server.ping(
+        customUrl: url,
+        cancelToken: CancelToken(),
+      ).timeout(const Duration(seconds: 8));
+      return res.data?['message'] == 'pong' || res.statusCode == 200;
+    } catch (_) {
+      return false;
     }
   }
 }

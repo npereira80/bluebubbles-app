@@ -63,7 +63,7 @@ class MmsDownloadedReceiver : BroadcastReceiver() {
         if (uri == null) return
         val mmsId = uri.lastPathSegment?.toLongOrNull() ?: -1L
         val from = pdu.from?.string ?: ""
-        Log.i(Constants.logTag, "MMS: persisted id=$mmsId from=$from")
+        Log.i(Constants.logTag, "MMS: persisted id=$mmsId")
 
         // Native notification (fires even if the Flutter engine is dead).
         SmsNotifications.notify(context, from, "📷 Attachment")
