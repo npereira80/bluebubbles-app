@@ -59,6 +59,11 @@ class SmsService {
   final RxBool canSendSms = false.obs;   // SIM present AND radio on (not airplane) → can send natively
   final Rx<SmsSyncState> syncState = SmsSyncState.idle.obs;
 
+  /// SMS/MMS runtime permissions. Separate from [isDefaultSmsApp]: the role can be
+  /// held while the permissions are denied, and then nothing arrives at all.
+  final RxBool hasSmsPermissions = false.obs;
+  final RxList<String> missingSmsPermissions = <String>[].obs;
+
   /// Live server reachability for the SMS Agent panel. null = unknown / not yet
   /// checked; true = ONLINE (green); false = OFFLINE (red). Refreshed by
   /// [pingServer] on view entry, tap, and pull-to-refresh.
@@ -99,7 +104,9 @@ class SmsService {
       await _loadConfig();
       await SmsSendMode.load();
       await refreshStatus();
-      Logger.info('SmsService: default=${isDefaultSmsApp.value}, serverConfigured=$serverConfigured');
+      Logger.info('SmsService: default=${isDefaultSmsApp.value}, '
+          'permissions=${hasSmsPermissions.value ? 'granted' : 'MISSING ${missingSmsPermissions.join(',')}'}, '
+          'serverConfigured=$serverConfigured');
 
       // One-time recovery: pull our injected SMS out of BlueBubbles' server
       // chats (namespace collision) so they re-import into our own `SMS;-;tn:`
@@ -215,7 +222,37 @@ class SmsService {
       simNumber.value = sim['number'] as String?;
       simPresent.value = (sim['present'] as bool?) ?? false;
       canSendSms.value = (sim['canSend'] as bool?) ?? false;
+      await refreshPermissions();
     } catch (_) {}
+  }
+
+  /// Holding the SMS role doesn't guarantee the SMS/MMS permissions came with it.
+  /// When they didn't, the app looks correctly set up and receives nothing at all,
+  /// because the system drops SMS_DELIVER before it reaches us. Check separately
+  /// so the settings panel can say so.
+  Future<void> refreshPermissions() async {
+    if (kIsWeb || kIsDesktop) return;
+    try {
+      final perms = ((await MethodChannelSvc.invokeMethod('sms-permissions')) as Map?)
+              ?.cast<String, dynamic>() ??
+          {};
+      hasSmsPermissions.value = perms['all'] == true;
+      missingSmsPermissions.value =
+          ((perms['missing'] as List?) ?? const []).map((e) => e.toString()).toList();
+    } catch (e) {
+      Logger.warn('SMS permission check failed: $e');
+    }
+  }
+
+  /// Ask for the missing SMS/MMS permissions (or open app settings if the system
+  /// won't show the dialog any more).
+  Future<void> requestPermissions() async {
+    if (kIsWeb || kIsDesktop) return;
+    try {
+      await MethodChannelSvc.invokeMethod('sms-request-permissions');
+    } catch (e) {
+      Logger.warn('SMS permission request failed: $e');
+    }
   }
 
   /// Full re-sync: reset all cursors and re-import everything from the phone

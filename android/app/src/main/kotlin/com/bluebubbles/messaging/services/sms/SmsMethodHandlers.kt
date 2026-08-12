@@ -1,10 +1,17 @@
 package com.bluebubbles.messaging.services.sms
 
+import android.Manifest
+import android.app.Activity
 import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.provider.Telephony
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.bluebubbles.messaging.models.MethodCallHandlerImpl
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -26,6 +33,79 @@ class SmsIsDefaultHandler : MethodCallHandlerImpl() {
             Telephony.Sms.getDefaultSmsPackage(context) == context.packageName
         }
         result.success(isDefault)
+    }
+}
+
+/**
+ * Which SMS/MMS runtime permissions are actually granted.
+ *
+ * Holding the SMS role normally grants these along with it, but not always: on
+ * some OEM builds (and when the role is set from Settings rather than through our
+ * prompt) the role sticks while the permission group stays denied. The app then
+ * looks correctly configured and silently receives nothing, because the system
+ * drops SMS_DELIVER with a Permission Denial. Surfacing the real grant state is
+ * the difference between a five-minute fix and a long hunt.
+ *
+ * Returns a name -> granted map, plus `all` for the summary line.
+ */
+class SmsPermissionsHandler : MethodCallHandlerImpl() {
+    companion object {
+        const val tag = "sms-permissions"
+
+        /** Everything the default SMS app needs to receive and send SMS + MMS. */
+        private val required = listOf(
+            Manifest.permission.RECEIVE_SMS,
+            Manifest.permission.READ_SMS,
+            Manifest.permission.SEND_SMS,
+            Manifest.permission.RECEIVE_MMS,
+            Manifest.permission.RECEIVE_WAP_PUSH,
+        )
+    }
+
+    override fun handleMethodCall(call: MethodCall, result: MethodChannel.Result, context: Context) {
+        val granted = required.associateWith {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        }
+        val out = mutableMapOf<String, Any>()
+        // Short names: the fully qualified ones are unreadable in a settings row.
+        granted.forEach { (permission, ok) -> out[permission.substringAfterLast('.')] = ok }
+        out["all"] = granted.values.all { it }
+        out["missing"] = granted.filterValues { !it }.keys.map { it.substringAfterLast('.') }
+        result.success(out)
+    }
+}
+
+/**
+ * Ask for any missing SMS/MMS permission. Falls back to the app's settings page,
+ * which is where the user ends up anyway once a permission has been permanently
+ * denied and the system stops showing the dialog.
+ */
+class SmsRequestPermissionsHandler : MethodCallHandlerImpl() {
+    companion object { const val tag = "sms-request-permissions" }
+
+    override fun handleMethodCall(call: MethodCall, result: MethodChannel.Result, context: Context) {
+        val wanted = arrayOf(
+            Manifest.permission.RECEIVE_SMS,
+            Manifest.permission.READ_SMS,
+            Manifest.permission.SEND_SMS,
+            Manifest.permission.RECEIVE_MMS,
+            Manifest.permission.RECEIVE_WAP_PUSH,
+        )
+        val activity = context as? Activity
+        if (activity != null) {
+            ActivityCompat.requestPermissions(activity, wanted, 4310)
+            result.success(true)
+            return
+        }
+        runCatching {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", context.packageName, null),
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
+        result.success(false)
     }
 }
 

@@ -123,6 +123,32 @@ class _SmsAgentPanelState extends State<SmsAgentPanel> with ThemeHelpers {
                       ),
                     )),
                 const SettingsDivider(),
+                // Being the default SMS app isn't enough on its own: if the SMS
+                // permissions didn't come with the role, Android drops incoming
+                // messages before they reach us and everything looks fine.
+                Obx(() {
+                  final ok = SmsSvc.hasSmsPermissions.value;
+                  final missing = SmsSvc.missingSmsPermissions;
+                  return SettingsTile(
+                    backgroundColor: tileColor,
+                    title: "SMS & MMS permissions",
+                    subtitle: ok
+                        ? "Granted — messages can reach the app"
+                        : "Missing ${missing.join(', ')} — tap to grant. "
+                            "Without these you won't receive anything.",
+                    onTap: () async {
+                      await SmsSvc.requestPermissions();
+                      await Future.delayed(const Duration(seconds: 1));
+                      await SmsSvc.refreshPermissions();
+                    },
+                    leading: SettingsLeadingIcon(
+                      iosIcon: CupertinoIcons.lock_shield_fill,
+                      materialIcon: Icons.verified_user_outlined,
+                      containerColor: ok ? Colors.green : Colors.red,
+                    ),
+                  );
+                }),
+                const SettingsDivider(),
                 Obx(() => SettingsTile(
                       backgroundColor: tileColor,
                       title: "SIM number",
