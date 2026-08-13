@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' as dartio; // WebSocket (matches websocket_adapter.dart); SMS is Android-only
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 
@@ -43,6 +44,7 @@ class SmsService {
   static const String _kCanonMigration = 'tn_sms_canon_v1';       // one-time E.164 rebuild
   static const String _kNsMigration = 'tn_sms_ns_v1';             // one-time namespace isolation
   static const String _kPendingOps = 'tn_sms_pending_ops';        // offline delete/read retry queue
+  static const String _kPendingSends = 'tn_sms_pending_sends';    // SMS with no radio and no network
 
   // Baked defaults (personal build). Overridable in Settings → SMS Agent.
   static const String _bakedUrl = 'https://sms.tn-services.net';
@@ -84,6 +86,8 @@ class SmsService {
 
   Timer? _timer;
   bool _pushing = false;
+  bool _flushingSends = false;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   bool _pushingMms = false;
   bool _pulling = false;
   bool _flushing = false;
@@ -119,6 +123,9 @@ class SmsService {
       if (isDefaultSmsApp.value) {
         await backfill();
       }
+      await _restorePendingSends();
+      _watchForSendOpportunity();
+      unawaited(flushPendingSends());
       if (serverConfigured) {
         await _ensureServer();
         await pingServer();
@@ -151,6 +158,7 @@ class SmsService {
       await pingServer();
       await _heartbeat();
       await _flushPendingOps();
+      await flushPendingSends();
       await syncToServer();
       await pullFromServer();
       unawaited(_ensureStream()); // reconnect if the socket dropped
@@ -413,6 +421,109 @@ class SmsService {
       attachments.add({'sha256': sha, 'mime': mime, 'size': bytes.length, if (p['name'] != null) 'name': p['name']});
     }
     await _server!.send(to: address, body: text, attachments: attachments);
+  }
+
+  // ---- pending outbox (no radio, no network) ------------------------------
+
+  /// GUIDs of messages waiting for a way out. Reactive so the bubble can show
+  /// "Pending..." without a database column for a state that is, by definition,
+  /// temporary.
+  final RxSet<String> pendingSendGuids = <String>{}.obs;
+
+  /// Queue a text SMS that can't be sent right now: no cellular service and no
+  /// route to the relay. Retried on every connectivity or SIM change, on resume,
+  /// and on the regular sync tick.
+  Future<void> queuePendingSend({
+    required String guid,
+    required String address,
+    required String body,
+    required int ts,
+  }) async {
+    final prefs = await _sp;
+    final list = _loadPendingSends(prefs);
+    if (list.any((e) => e['guid'] == guid)) return;
+    list.add({'guid': guid, 'address': address, 'body': body, 'ts': ts});
+    await prefs.setString(_kPendingSends, jsonEncode(list));
+    pendingSendGuids.add(guid);
+    Logger.info('SmsService: queued SMS $guid — nothing available to send it yet');
+  }
+
+  List<Map<String, dynamic>> _loadPendingSends(SharedPreferences prefs) {
+    final raw = prefs.getString(_kPendingSends);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      return (jsonDecode(raw) as List).map((e) => (e as Map).cast<String, dynamic>()).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Restore the pending set on launch so bubbles come back as "Pending..."
+  /// rather than looking sent.
+  Future<void> _restorePendingSends() async {
+    final prefs = await _sp;
+    pendingSendGuids
+      ..clear()
+      ..addAll(_loadPendingSends(prefs).map((e) => e['guid'] as String));
+  }
+
+  /// Try to deliver everything queued, oldest first, stopping at the first one
+  /// that still can't go — otherwise a later message could overtake an earlier.
+  Future<void> flushPendingSends() async {
+    if (_flushingSends) return;
+    final prefs = await _sp;
+    var list = _loadPendingSends(prefs);
+    if (list.isEmpty) return;
+
+    _flushingSends = true;
+    try {
+      await refreshStatus();
+      final remaining = <Map<String, dynamic>>[];
+      bool stop = false;
+
+      for (final item in list) {
+        if (stop) {
+          remaining.add(item);
+          continue;
+        }
+        final guid = item['guid'] as String;
+        final address = item['address'] as String;
+        final body = item['body'] as String;
+        final ts = (item['ts'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+        try {
+          if (canSendSms.value) {
+            await nativeSend(address, body, guid);
+            unawaited(recordOutgoing(address, body, ts));
+          } else {
+            await sendTextViaServer(address, body);
+          }
+          pendingSendGuids.remove(guid);
+          Logger.info('SmsService: delivered queued SMS $guid');
+        } catch (e) {
+          Logger.warn('SmsService: queued SMS $guid still cannot be sent: $e');
+          remaining.add(item);
+          stop = true;
+        }
+      }
+
+      if (remaining.isEmpty) {
+        await prefs.remove(_kPendingSends);
+      } else {
+        await prefs.setString(_kPendingSends, jsonEncode(remaining));
+      }
+    } finally {
+      _flushingSends = false;
+    }
+  }
+
+  /// Retry the outbox whenever the device gains a way out: Wi-Fi/data arriving
+  /// for the relay, or the radio finding a network for the SIM.
+  void _watchForSendOpportunity() {
+    _connectivitySub?.cancel();
+    _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
+      final hasNetwork = results.isNotEmpty && !(results.length == 1 && results.first == ConnectivityResult.none);
+      if (hasNetwork) unawaited(flushPendingSends());
+    });
   }
 
   /// Called after this device transmits an SMS over the radio.

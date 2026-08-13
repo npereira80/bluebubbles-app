@@ -903,19 +903,47 @@ class OutgoingMessageHandler {
     try {
       final int ts = m.dateCreated?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
       if (SmsSvc.canSendSms.value) {
-        // This device can transmit (SIM ready, radio on): send over the radio.
+        // SIM ready, radio on, and actually registered on a network.
         await SmsSvc.nativeSend(address, body, tempGuid);
         m.dateDelivered = DateTime.now();
         unawaited(SmsSvc.recordOutgoing(address, body, ts));
       } else {
-        // No SIM or airplane mode: relay through the server to the primary phone.
+        // No SIM, airplane mode, or out of coverage. The relay asks the server to
+        // send it from whichever device currently holds a usable SIM. That may be
+        // no device at all, in which case this throws and we hold the message.
         await SmsSvc.sendTextViaServer(address, body);
       }
       m.guid = SmsService.smsGuid(isFromMe: true, address: address, body: body, dateMs: ts);
       await _matchMessageWithExisting(c, tempGuid, m);
     } catch (e, s) {
+      // Nothing could carry it right now. Rather than showing a failure the user
+      // has to notice and retry by hand, hold it and send it the moment either
+      // route comes back.
+      if (await _holdForLater(c, m, tempGuid, address, body)) return;
       await _finalizeOutgoingFailure(c, m, tempGuid,
           logMessage: 'Failed to send SMS', error: e, stack: s);
+    }
+  }
+
+  /// Park an SMS that has no way out yet: no cellular service and no route to the
+  /// relay. The bubble stays in place and reads "Pending...".
+  ///
+  /// Returns true when the message has been taken over.
+  Future<bool> _holdForLater(Chat c, Message m, String tempGuid, String address, String body) async {
+    if (isNullOrEmptyString(body)) return false;
+    try {
+      await SmsSvc.queuePendingSend(
+        guid: tempGuid,
+        address: address,
+        body: body,
+        ts: m.dateCreated?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch,
+      );
+      // Leave the message exactly as it is (temp GUID, no error), so it keeps its
+      // place in the thread. SmsService.pendingSendGuids drives the label.
+      return true;
+    } catch (e, s) {
+      Logger.warn('Could not queue SMS for later', error: e, trace: s, tag: _tag);
+      return false;
     }
   }
 

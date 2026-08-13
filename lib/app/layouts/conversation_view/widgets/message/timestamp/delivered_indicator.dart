@@ -5,9 +5,11 @@ import 'package:bluebubbles/app/state/message_state_scope.dart';
 import 'package:bluebubbles/app/state/chat_state_scope.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/database/models.dart';
+import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/services/services.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:get_it/get_it.dart';
 
 class DeliveredIndicator extends StatefulWidget {
   const DeliveredIndicator({
@@ -63,8 +65,17 @@ class _DeliveredIndicatorState extends State<DeliveredIndicator> with ThemeHelpe
     super.dispose();
   }
 
+  /// Waiting in the SMS outbox for a radio or a network.
+  bool get _isPending {
+    final guid = message.guid;
+    return guid != null &&
+        GetIt.I.isRegistered<SmsService>() &&
+        SmsSvc.pendingSendGuids.contains(guid);
+  }
+
   bool get shouldShow {
     if (controller.audioWasKept.value != null) return true;
+    if (_isPending) return true;
     if (widget.forceShow || _isSendingDisplayed) return true;
     if ((!message.isFromMe! && iOS) || (controller.parts.lastOrNull?.isUnsent ?? false)) return false;
 
@@ -98,6 +109,11 @@ class _DeliveredIndicatorState extends State<DeliveredIndicator> with ThemeHelpe
 
     if (controller.audioWasKept.value != null) {
       return buildTwoPiece("Kept", buildDate(controller.audioWasKept.value!));
+    } else if (_isPending) {
+      // TN fork: no cellular service and no route to the relay. Held locally and
+      // sent as soon as either comes back, so it isn't a failure and shouldn't
+      // read like one.
+      return buildTwoPiece("Pending...", "");
     } else if (!(message.isFromMe ?? false)) {
       return buildTwoPiece("Received", buildDate(message.dateCreated));
     } else if (dateRead != null) {
@@ -134,6 +150,9 @@ class _DeliveredIndicatorState extends State<DeliveredIndicator> with ThemeHelpe
         controller.audioWasKept.value;
         controller.dateDelivered.value;
         controller.dateRead.value;
+        // Subscribe so the label flips from "Pending..." the instant it's sent.
+        // Not registered on desktop/web, where there's no SMS at all.
+        if (GetIt.I.isRegistered<SmsService>()) SmsSvc.pendingSendGuids.length;
         return shouldShow && getText().isNotEmpty
             ? Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 15).add(EdgeInsets.only(

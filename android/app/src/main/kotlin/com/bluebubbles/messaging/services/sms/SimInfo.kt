@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
+import android.telephony.ServiceState
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
@@ -28,14 +29,45 @@ object SimInfo {
                             "simKey" to null, "number" to null, "iccid" to null)
         val present = tm.simState == TelephonyManager.SIM_STATE_READY
         if (!present) return mapOf("present" to false, "canSend" to false, "airplaneMode" to airplane,
-                                   "simKey" to null, "number" to null, "iccid" to null)
+                                   "inService" to false, "simKey" to null, "number" to null, "iccid" to null)
+
+        // A SIM in the tray with the radio on still can't send when the device has
+        // no coverage. Android would accept the message and hold it in the radio
+        // layer, so the app would show it as sent and the user would never learn
+        // it hadn't gone anywhere.
+        val inService = serviceAvailable(tm)
 
         val number = phoneNumber(context)
         val iccid = iccid(context)
         val key = number?.takeIf { it.isNotBlank() } ?: iccid
-        // canSend = SIM ready AND radio available (not airplane mode).
-        return mapOf("present" to true, "canSend" to !airplane, "airplaneMode" to airplane,
-                     "simKey" to key, "number" to number, "iccid" to iccid)
+        // canSend = SIM ready AND radio available AND actually on a network.
+        return mapOf("present" to true, "canSend" to (!airplane && inService), "airplaneMode" to airplane,
+                     "inService" to inService, "simKey" to key, "number" to number, "iccid" to iccid)
+    }
+
+    /**
+     * Whether the device is registered on a cellular network.
+     *
+     * Treated as available when it can't be determined: a false "no coverage"
+     * would divert every message to the relay, which is worse than trying the
+     * radio and finding out.
+     */
+    private fun serviceAvailable(tm: TelephonyManager): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+        return try {
+            val state = tm.serviceState ?: return true
+            when (state.state) {
+                ServiceState.STATE_IN_SERVICE -> true
+                ServiceState.STATE_EMERGENCY_ONLY,
+                ServiceState.STATE_OUT_OF_SERVICE,
+                ServiceState.STATE_POWER_OFF -> false
+                else -> true
+            }
+        } catch (_: SecurityException) {
+            true
+        } catch (_: Exception) {
+            true
+        }
     }
 
     private fun granted(context: Context, perm: String) =
