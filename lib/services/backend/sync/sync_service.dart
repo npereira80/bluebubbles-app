@@ -9,6 +9,7 @@ import 'package:bluebubbles/services/backend/interfaces/sync_interface.dart';
 import 'package:bluebubbles/services/isolates/incremental_sync_isolate.dart';
 import 'package:bluebubbles/utils/logger/logger.dart';
 import 'package:bluebubbles/services/services.dart';
+import 'package:dio/dio.dart' show DioException, DioExceptionType;
 import 'package:get/get.dart' hide Response;
 import 'package:get_it/get_it.dart';
 import 'package:universal_io/universal_io.dart';
@@ -71,6 +72,10 @@ class SyncService {
     _lastIncrementalSyncTimestamp = now;
     isIncrementalSyncing.value = true;
     int errors = 0;
+    // An unreachable server isn't a sync failure worth shouting about — it's the
+    // expected outcome of the server being off, which the offline bar already
+    // says. Tracked separately so a real failure still surfaces.
+    bool unreachable = false;
 
     // Per-page tracking: record message IDs and chat subtitle message IDs that were
     // already applied by per-page events so the final return can skip redundant work.
@@ -162,29 +167,70 @@ class SyncService {
           'in ${chatStopwatch.elapsedMilliseconds}ms',
           tag: 'Incremental Chat Sync');
     } catch (e, stack) {
-      Logger.error('Incremental chat sync failed!', error: e, trace: stack, tag: 'Incremental Chat Sync');
-      errors += 1;
+      if (isServerUnreachable(e)) {
+        unreachable = true;
+        Logger.info('Incremental chat sync skipped — server unreachable', tag: 'Incremental Chat Sync');
+      } else {
+        Logger.error('Incremental chat sync failed!', error: e, trace: stack, tag: 'Incremental Chat Sync');
+        errors += 1;
+      }
     } finally {
       syncIsolate.removeEventListener(IsolateEvent.incrementalSyncPageComplete, onPageComplete);
     }
 
-    final contactSyncResult = await performContactSyncToHandles();
-    if (!contactSyncResult) {
-      errors += 1;
-    }
+    // No point asking the server for contacts when we've just established it
+    // isn't answering; those calls would only fail and inflate the error count.
+    if (!unreachable) {
+      final contactSyncResult = await performContactSyncToHandles();
+      if (!contactSyncResult) {
+        errors += 1;
+      }
 
-    final contactUploadResult = await performContactSyncToServer();
-    if (!contactUploadResult) {
-      errors += 1;
+      final contactUploadResult = await performContactSyncToServer();
+      if (!contactUploadResult) {
+        errors += 1;
+      }
     }
 
     if (errors > 0) {
       await showToast('Incremental sync completed with $errors errors', isError: true);
+    } else if (unreachable) {
+      // Silent: the "iMessage server offline" bar is already on screen, and this
+      // runs on every resume and every reconnect attempt.
     } else if (SettingsSvc.settings.showIncrementalSync.value) {
       await showToast('Incremental sync complete');
     }
 
     isIncrementalSyncing.value = false;
+  }
+
+  /// Whether a failure means "the server isn't answering" rather than "something
+  /// went wrong". Covers a dead socket, DNS failure, refused connection, timeouts,
+  /// a tunnel that's gone, and our own "no server configured" guard.
+  static bool isServerUnreachable(Object error) {
+    if (error is SocketException) return true;
+    if (error is DioException) {
+      switch (error.type) {
+        case DioExceptionType.connectionError:
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+          return true;
+        case DioExceptionType.badResponse:
+          // 502/503/504 mean the tunnel is up but nothing is behind it.
+          final status = error.response?.statusCode ?? 0;
+          return status >= 502 && status <= 504;
+        default:
+          break;
+      }
+      if (error.error is SocketException) return true;
+    }
+    final text = error.toString();
+    return text.contains('No server URL!') ||
+        text.contains('Failed host lookup') ||
+        text.contains('Connection refused') ||
+        text.contains('Connection closed') ||
+        text.contains('Network is unreachable');
   }
 
   Future<bool> performContactSyncToHandles() async {

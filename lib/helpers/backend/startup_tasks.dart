@@ -423,7 +423,11 @@ class StartupTasks {
     Logger.info("Registering FCM device in background...");
     FirebaseSvc.registerDevice().catchError((e, s) {
       Logger.warn("Failed to register FCM device on startup!", error: e, trace: s);
-      showToast("Failed to register FCM device!", isError: true);
+      // Don't toast when the server simply isn't answering: that's already on
+      // screen as the offline bar, and this fires on every cold start.
+      if (!SyncService.isServerUnreachable(e)) {
+        showToast("Failed to register FCM device!", isError: true);
+      }
       return null; // Return null on error
     });
 
