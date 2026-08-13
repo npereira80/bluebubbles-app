@@ -1,5 +1,6 @@
 import 'package:bluebubbles/app/layouts/conversation_list/pages/conversation_list.dart';
 import 'package:bluebubbles/app/layouts/setup/setup_view.dart';
+import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/services/services.dart';
 import 'package:bluebubbles/utils/logger/logger.dart';
 import 'package:flutter/material.dart';
