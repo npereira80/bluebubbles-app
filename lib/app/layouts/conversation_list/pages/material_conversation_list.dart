@@ -1,5 +1,6 @@
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/pages/conversation_list.dart';
+import 'package:bluebubbles/app/components/connection_banners.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/chat_list_refresh.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/conversation_list_fab.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/filters/custom_group_filter_chip_row.dart';
@@ -155,6 +156,7 @@ class _MaterialConversationListState extends State<MaterialConversationList> {
 
                 return Column(
                   children: [
+                    const ConnectionBanners(),
                     if (!showArchived && !showUnknown)
                       const CustomGroupFilterChipRow(
                         padding: EdgeInsets.only(left: 12, right: 12, top: 16, bottom: 4),

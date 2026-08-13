@@ -4,6 +4,7 @@ import 'package:bluebubbles/database/models.dart';
 import 'package:bluebubbles/app/wrappers/bb_app_bar.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/pages/conversation_list.dart';
+import 'package:bluebubbles/app/components/connection_banners.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/chat_list_refresh.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/tile/conversation_tile.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/tile/pinned_conversation_tile.dart';
@@ -72,8 +73,13 @@ class CupertinoConversationListState extends State<CupertinoConversationList> wi
               backgroundColor: Colors.transparent,
             )
           : null,
-      body: Stack(
+      body: Column(
         children: [
+          // The iOS list draws behind the status bar, so the bar has to cover it.
+          ConnectionBanners(topInset: MediaQuery.paddingOf(context).top),
+          Expanded(
+            child: Stack(
+              children: [
           ScrollbarWrapper(
             showScrollbar: true,
             controller: controller.iosScrollController,
@@ -355,6 +361,9 @@ class CupertinoConversationListState extends State<CupertinoConversationList> wi
                 )),
           ),
           if (!showArchived && !showUnknown) CupertinoMiniHeader(controller: controller),
+              ],
+            ),
+          ),
         ],
       ),
     );

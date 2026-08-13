@@ -1,6 +1,7 @@
 import 'package:bluebubbles/app/components/sliver_decoration.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/pages/conversation_list.dart';
+import 'package:bluebubbles/app/components/connection_banners.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/chat_list_refresh.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/conversation_list_fab.dart';
 import 'package:bluebubbles/app/layouts/conversation_list/widgets/filters/custom_group_filter_chip_row.dart';
@@ -69,7 +70,11 @@ class _SamsungConversationListState extends State<SamsungConversationList> with 
         floatingActionButton:
             !showArchived && !showUnknown ? ConversationListFAB(parentController: controller) : const SizedBox.shrink(),
         body: SafeArea(
-          child: NotificationListener<ScrollEndNotification>(
+          child: Column(
+            children: [
+              const ConnectionBanners(),
+              Expanded(
+                child: NotificationListener<ScrollEndNotification>(
             onNotification: (_) {
               if (kIsWeb || kIsDesktop) return false;
               final scrollDistance = context.height / 3 - 57;
@@ -184,6 +189,9 @@ class _SamsungConversationListState extends State<SamsungConversationList> with 
                 );
               }),
             ),
+          ),
+              ),
+            ],
           ),
         ),
         bottomNavigationBar: SamsungFooter(parentController: controller),

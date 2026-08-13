@@ -1,3 +1,4 @@
+import 'package:bluebubbles/app/components/connection_banners.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/header/cupertino_header.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/header/material_header.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/messages_view_components.dart';
@@ -166,9 +167,34 @@ class ConversationViewState extends State<ConversationView> with ThemeHelpers<Co
               );
             },
           ),
+          // Connection banners sit directly under the header. The body extends
+          // behind the app bar, so offset by its height (Scaffold adds the status
+          // bar inset to it) rather than pinning to the top of the screen.
+          Builder(
+            builder: (context) {
+              final top = _appBar.preferredSize.height + MediaQuery.paddingOf(context).top;
+              return Positioned(
+                top: top,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  child: ConnectionBanners(showIMessage: _supportsIMessage),
+                ),
+              );
+            },
+          ),
         ],
       ),
     );
+  }
+
+  /// Whether the BlueBubbles server matters for this thread. An SMS-only chat
+  /// keeps working with iMessage down, so saying so would just be noise. Checks
+  /// the paired chat too: a contact reachable both ways is one thread here but
+  /// two rows underneath.
+  bool get _supportsIMessage {
+    if (ChatMerge.isOurSms(chat)) return ChatMerge.pairedChat(chat)?.isIMessage ?? false;
+    return chat.isIMessage || (ChatMerge.pairedChat(chat)?.isIMessage ?? false);
   }
 
   void _buildActionsMap() {
