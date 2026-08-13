@@ -805,24 +805,84 @@ class OutgoingMessageHandler {
               }
             : null,
       ),
-      onError: (error, stack) => _finalizeOutgoingFailure(
-        c, m, tempGuid,
-        logMessage: r == null ? 'Failed to send message' : 'Failed to send reaction',
-        error: error,
-        stack: stack,
-        // Reactions live in the parent's associatedMessages list, not as
-        // top-level MessagesService entries, so the standard updateMessage call
-        // inside _finalizeOutgoingFailure is a no-op for them.  Explicitly
-        // update the parent so the error badge propagates to the UI.
-        onExtra: r != null && m.associatedMessageGuid != null
-            ? (errorMsg) async {
-                maybeFindMessagesSvc(c.guid)
-                    ?.getMessageStateIfExists(m.associatedMessageGuid!)
-                    ?.updateAssociatedMessageInternal(errorMsg, tempGuid: tempGuid);
-              }
-            : null,
-      ),
+      onError: (error, stack) async {
+        // TN fork: iMessage couldn't be reached, but this contact is also on
+        // SMS — deliver over the SIM instead of failing. Only on a real
+        // unreachable-server error, so a brief socket blip never silently
+        // turns an iMessage into a billable SMS.
+        if (r == null && await _resendOverSms(c, m, tempGuid, error)) return;
+        await _finalizeOutgoingFailure(
+          c, m, tempGuid,
+          logMessage: r == null ? 'Failed to send message' : 'Failed to send reaction',
+          error: error,
+          stack: stack,
+          // Reactions live in the parent's associatedMessages list, not as
+          // top-level MessagesService entries, so the standard updateMessage call
+          // inside _finalizeOutgoingFailure is a no-op for them.  Explicitly
+          // update the parent so the error badge propagates to the UI.
+          onExtra: r != null && m.associatedMessageGuid != null
+              ? (errorMsg) async {
+                  maybeFindMessagesSvc(c.guid)
+                      ?.getMessageStateIfExists(m.associatedMessageGuid!)
+                      ?.updateAssociatedMessageInternal(errorMsg, tempGuid: tempGuid);
+                }
+              : null,
+        );
+      },
     );
+  }
+
+  /// TN fork: deliver a failed iMessage over the SIM when the contact is also
+  /// reachable by SMS.
+  ///
+  /// Returns true when the message has been taken over, so the caller must not
+  /// also mark it failed.
+  ///
+  /// Only fires for a genuinely unreachable server. A 401, a rejected message or
+  /// any other real error still fails visibly — silently converting those into
+  /// SMS would hide a problem and cost money doing it.
+  Future<bool> _resendOverSms(Chat c, Message m, String tempGuid, Object? error) async {
+    if (error == null || !SyncService.isServerUnreachable(error)) return false;
+    if (!GetIt.I.isRegistered<SmsService>()) return false;
+    // Text only. An attachment would have to be re-encoded as an MMS, which is a
+    // different path entirely.
+    if (isNullOrEmptyString(m.text) || m.hasAttachments) return false;
+    if (ChatMerge.isOurSms(c)) return false;
+
+    final smsChat = ChatMerge.smsSendChat(c);
+    if (smsChat == null) return false;
+
+    final address = (smsChat.participants.isNotEmpty ? smsChat.participants.first.address : null) ??
+        smsChat.chatIdentifier;
+    if (address == null || address.isEmpty) return false;
+
+    Logger.info('iMessage unreachable — delivering ${c.guid} over SMS instead', tag: _tag);
+
+    try {
+      final int ts = m.dateCreated?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
+      final body = m.text!;
+
+      if (SmsSvc.canSendSms.value) {
+        await SmsSvc.nativeSend(address, body, tempGuid);
+        m.dateDelivered = DateTime.now();
+        unawaited(SmsSvc.recordOutgoing(address, body, ts));
+      } else {
+        // No SIM in this device: relay through our sync server to the phone that
+        // has one. Note this is the SMS server, not the BlueBubbles one that just
+        // failed, so it's a genuinely different route.
+        await SmsSvc.sendTextViaServer(address, body);
+      }
+
+      // An `sms-` GUID is what turns the bubble green, and it keeps the message
+      // in the thread the user is looking at rather than moving it.
+      m.guid = SmsService.smsGuid(isFromMe: true, address: address, body: body, dateMs: ts);
+      m.error = 0;
+      await _matchMessageWithExisting(c, tempGuid, m);
+      return true;
+    } catch (e, s) {
+      Logger.warn('SMS fallback failed too', error: e, trace: s, tag: _tag);
+      return false;
+    }
   }
 
   /// TN fork: send an SMS-service message over the local SIM (no BlueBubbles
