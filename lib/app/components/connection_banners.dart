@@ -22,7 +22,7 @@ import 'package:get/get.dart';
 ///  - yellow "No internet connection"    — shown alone, since in that case both
 ///           servers are unreachable and naming them adds nothing.
 class ConnectionBanners extends StatefulWidget {
-  const ConnectionBanners({super.key, this.showIMessage = true, this.topInset = 0});
+  const ConnectionBanners({super.key, this.showIMessage = true, this.topInset = 0, this.child});
 
   /// Whether the iMessage bar is relevant here. False inside SMS-only threads:
   /// the BlueBubbles server being down changes nothing for them.
@@ -32,6 +32,14 @@ class ConnectionBanners extends StatefulWidget {
   /// the status bar. Only needed where nothing above has already absorbed that
   /// inset (the iOS chat list draws behind it; a Scaffold app bar does not).
   final double topInset;
+
+  /// Optional subtree to place under the bars, pushed down rather than covered.
+  ///
+  /// Use this to wrap a whole screen whose own header already reserves room for
+  /// the status bar (the conversation view). While a bar is showing it has taken
+  /// over that space, so the subtree is told the top inset is zero — otherwise
+  /// the header pads for a status bar that is no longer there and leaves a gap.
+  final Widget? child;
 
   @override
   State<ConnectionBanners> createState() => _ConnectionBannersState();
@@ -97,31 +105,57 @@ class _ConnectionBannersState extends State<ConnectionBanners> {
   @override
   Widget build(BuildContext context) {
     return Obx(() {
-      final bars = <Widget>[];
+      final problems = <({String text, bool warning})>[];
 
       if (!_online) {
-        bars.add(const _Banner(text: "No internet connection", warning: true));
+        problems.add((text: "No internet connection", warning: true));
       } else {
         if (widget.showIMessage && _socketDown) {
-          bars.add(const _Banner(text: "iMessage server offline"));
+          problems.add((text: "iMessage server offline", warning: false));
         }
         if (SmsSvc.serverOnline.value == false) {
-          bars.add(const _Banner(text: "SMS server offline", warning: true));
+          problems.add((text: "SMS server offline", warning: true));
         }
       }
 
-      if (bars.isNotEmpty && widget.topInset > 0) {
-        final first = bars.first as _Banner;
-        bars[0] = _Banner(text: first.text, warning: first.warning, topInset: widget.topInset);
-      }
+      // The first bar absorbs the status bar when nothing above it already has.
+      final double inset = widget.topInset > 0
+          ? widget.topInset
+          : (widget.child != null ? MediaQuery.paddingOf(context).top : 0);
 
-      return AnimatedSize(
+      final bars = AnimatedSize(
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeInOut,
         alignment: Alignment.topCenter,
-        child: bars.isEmpty
+        child: problems.isEmpty
             ? const SizedBox(width: double.infinity)
-            : Column(mainAxisSize: MainAxisSize.min, children: bars),
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final (i, p) in problems.indexed)
+                    _Banner(text: p.text, warning: p.warning, topInset: i == 0 ? inset : 0),
+                ],
+              ),
+      );
+
+      if (widget.child == null) return bars;
+
+      final media = MediaQuery.of(context);
+      return Column(
+        children: [
+          bars,
+          Expanded(
+            child: problems.isEmpty
+                ? widget.child!
+                : MediaQuery(
+                    data: media.copyWith(
+                      padding: media.padding.copyWith(top: 0),
+                      viewPadding: media.viewPadding.copyWith(top: 0),
+                    ),
+                    child: widget.child!,
+                  ),
+          ),
+        ],
       );
     });
   }

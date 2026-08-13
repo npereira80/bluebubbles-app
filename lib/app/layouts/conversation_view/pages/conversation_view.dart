@@ -167,22 +167,6 @@ class ConversationViewState extends State<ConversationView> with ThemeHelpers<Co
               );
             },
           ),
-          // Connection banners sit directly under the header. The body extends
-          // behind the app bar, so offset by its height (Scaffold adds the status
-          // bar inset to it) rather than pinning to the top of the screen.
-          Builder(
-            builder: (context) {
-              final top = _appBar.preferredSize.height + MediaQuery.paddingOf(context).top;
-              return Positioned(
-                top: top,
-                left: 0,
-                right: 0,
-                child: IgnorePointer(
-                  child: ConnectionBanners(showIMessage: _supportsIMessage),
-                ),
-              );
-            },
-          ),
         ],
       ),
     );
@@ -298,13 +282,18 @@ class ConversationViewState extends State<ConversationView> with ThemeHelpers<Co
               if (LifecycleSvc.isBubble) return;
               return Navigator.of(context).pop();
             },
-            child: BBScaffold(
-              backgroundColor: windowEffect != WindowEffect.disabled ? Colors.transparent : colorScheme.surface,
-              extendBodyBehindAppBar: true,
-              appBar: _appBar,
-              body: Actions(
-                actions: _actionsMap,
-                child: _bodyContent,
+            // Bars go above the header, same as the chat list, and push the whole
+            // screen down rather than floating over the messages.
+            child: ConnectionBanners(
+              showIMessage: _supportsIMessage,
+              child: BBScaffold(
+                backgroundColor: windowEffect != WindowEffect.disabled ? Colors.transparent : colorScheme.surface,
+                extendBodyBehindAppBar: true,
+                appBar: _appBar,
+                body: Actions(
+                  actions: _actionsMap,
+                  child: _bodyContent,
+                ),
               ),
             ),
           ),
