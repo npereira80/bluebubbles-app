@@ -24,6 +24,18 @@ class SetupService extends GetxService {
     await _finishSetup();
   }
 
+  /// TN fork — finish setup without a Bubbles server: SMS only, over the Android
+  /// SIM. iMessage is switched off rather than left on and broken, so nothing
+  /// tries to reach a server that was never configured.
+  ///
+  /// Deliberately skips the sync pages: there is nothing to full-sync, and
+  /// SyncProgress asserts on a sync manager that would never have been created.
+  Future<void> finishSetupWithoutServer() async {
+    SettingsSvc.settings.iMessageEnabled.value = false;
+    await SettingsSvc.settings.saveOneAsync('iMessageEnabled');
+    await _finishSetup();
+  }
+
   Future<void> _finishSetup() async {
     SettingsSvc.settings.finishedSetup.value = true;
     await SettingsSvc.settings.saveOneAsync('finishedSetup');

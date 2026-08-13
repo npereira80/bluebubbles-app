@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:bluebubbles/env.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
+import 'package:bluebubbles/services/backend/sms/imessage_mode.dart';
 import 'package:bluebubbles/database/database.dart';
 import 'package:bluebubbles/services/isolates/global_isolate.dart';
 import 'package:bluebubbles/services/isolates/incremental_sync_isolate.dart';
@@ -400,9 +401,16 @@ class StartupTasks {
     }
 
     if (!kIsDesktop) {
-      Logger.info("Initializing ChatsService and SocketService...");
+      Logger.info("Initializing ChatsService...");
       ChatsSvc.init(headless: false);
-      SocketSvc.init();
+      // TN fork: SMS-only mode. Chats still load from the local database, but
+      // nothing reaches for the BlueBubbles server — no socket, no sync, no FCM.
+      if (IMessageMode.enabled) SocketSvc.init();
+    }
+
+    if (!IMessageMode.enabled) {
+      Logger.info("iMessage is off — skipping server details, sync and FCM registration");
+      return;
     }
 
     // Refresh server details in the background via the GlobalIsolate.

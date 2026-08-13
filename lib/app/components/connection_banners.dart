@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:bluebubbles/services/backend/sms/imessage_mode.dart';
 import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/services/network/socket_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -110,7 +111,9 @@ class _ConnectionBannersState extends State<ConnectionBanners> {
       if (!_online) {
         problems.add((text: "No internet connection", warning: true));
       } else {
-        if (widget.showIMessage && _socketDown) {
+        // Nothing about the BlueBubbles server is worth reporting when the user
+        // has switched that half of the app off.
+        if (widget.showIMessage && IMessageMode.enabled && _socketDown) {
           problems.add((text: "iMessage server offline", warning: false));
         }
         if (SmsSvc.serverOnline.value == false) {

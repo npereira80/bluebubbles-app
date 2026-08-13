@@ -22,6 +22,7 @@ import 'package:bluebubbles/app/layouts/settings/pages/misc/troubleshoot_panel.d
 import 'package:bluebubbles/app/layouts/settings/pages/profile/profile_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/pages/server/backup_restore_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/pages/server/server_management_panel.dart';
+import 'package:bluebubbles/app/layouts/settings/pages/imessage/imessage_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/pages/sms_agent/sms_agent_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/pages/watch/watch_client_panel.dart';
 import 'package:bluebubbles/app/layouts/settings/pages/system/notification_panel.dart';
@@ -97,6 +98,37 @@ List<Widget> buildSettingItemList({
         ],
       ),
     ),
+    // TN Messages fork — master switch for the iMessage half of the app
+    if (Platform.isAndroid)
+      SearchableSettingItem(
+        title: "iMessage",
+        searchTags: ["iMessage", "SMS only", "Disable iMessage", "Bubbles server", "Turn off iMessage"],
+        child: SettingsSection(
+          backgroundColor: tileColor,
+          children: [
+            Obx(() => SettingsTile(
+                  backgroundColor: tileColor,
+                  title: "iMessage",
+                  subtitle: SettingsSvc.settings.iMessageEnabled.value
+                      ? "On — iMessage and SMS"
+                      : "Off — SMS only",
+                  onTap: () {
+                    ns.pushAndRemoveSettingsUntil(
+                      context,
+                      const IMessagePanel(),
+                      (Route route) => route.isFirst,
+                    );
+                  },
+                  leading: SettingsLeadingIcon(
+                    iosIcon: CupertinoIcons.chat_bubble_2_fill,
+                    materialIcon: Icons.forum_outlined,
+                    containerColor: SettingsSvc.settings.iMessageEnabled.value ? Colors.blue : Colors.grey,
+                  ),
+                  trailing: const NextButton(),
+                )),
+          ],
+        ),
+      ),
     // TN Messages fork — local Android SMS control panel
     if (Platform.isAndroid)
       SearchableSettingItem(

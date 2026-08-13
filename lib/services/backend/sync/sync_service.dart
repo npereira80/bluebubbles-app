@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bluebubbles/database/database.dart';
 import 'package:bluebubbles/database/models.dart';
+import 'package:bluebubbles/services/backend/sms/imessage_mode.dart';
 import 'package:bluebubbles/helpers/ui/ui_helpers.dart';
 import 'package:bluebubbles/services/backend/interfaces/contact_v2_interface.dart';
 import 'package:bluebubbles/services/backend/interfaces/sync_interface.dart';
@@ -52,6 +53,9 @@ class SyncService {
 
   Future<void> startIncrementalSync({bool useGlobalIsolate = false}) async {
     if (isIncrementalSyncing.value) return;
+    // TN fork: nothing to sync while the iMessage half is switched off. The
+    // cursor is left untouched, so re-enabling resumes instead of re-downloading.
+    if (!IMessageMode.enabled) return;
 
     final now = DateTime.now();
     if (_lastIncrementalSyncTimestamp != null &&

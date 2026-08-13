@@ -8,6 +8,7 @@ import 'package:bluebubbles/app/wrappers/bb_scaffold.dart';
 import 'package:bluebubbles/app/wrappers/gradient_background_wrapper.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
+import 'package:bluebubbles/services/backend/sms/imessage_mode.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/pages/messages_view.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/effects/screen_effects_widget.dart';
 import 'package:bluebubbles/database/models.dart';
@@ -177,6 +178,7 @@ class ConversationViewState extends State<ConversationView> with ThemeHelpers<Co
   /// the paired chat too: a contact reachable both ways is one thread here but
   /// two rows underneath.
   bool get _supportsIMessage {
+    if (!IMessageMode.enabled) return false;
     if (ChatMerge.isOurSms(chat)) return ChatMerge.pairedChat(chat)?.isIMessage ?? false;
     return chat.isIMessage || (ChatMerge.pairedChat(chat)?.isIMessage ?? false);
   }

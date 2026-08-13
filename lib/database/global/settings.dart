@@ -24,6 +24,11 @@ class Settings {
   final RxString serverAddress = "".obs;
   final Rx<Map<String, String>> customHeaders = Rx<Map<String, String>>(<String, String>{});
   final RxBool finishedSetup = false.obs;
+  /// TN fork — master switch for the BlueBubbles/iMessage half of the app.
+  /// Off means SMS-only over the Android SIM: no socket, no sync, no iMessage
+  /// chats in the list. The local database and sync cursors are kept, so
+  /// turning it back on resumes rather than re-downloading.
+  final RxBool iMessageEnabled = true.obs;
   final RxBool reachedConversationList = false.obs;
   final RxBool autoDownload = true.obs;
   final RxBool onlyWifiDownload = false.obs;
@@ -420,6 +425,7 @@ class Settings {
         'serverAddress': serverAddress.value,
         'customHeaders': Map<String, String>.from(customHeaders.value),
         'finishedSetup': finishedSetup.value,
+        'iMessageEnabled': iMessageEnabled.value,
         'reachedConversationList': reachedConversationList.value,
         'colorsFromMedia': colorsFromMedia.value,
         'userAvatarPath': userAvatarPath.value,
@@ -442,6 +448,8 @@ class Settings {
       SettingsSvc.settings.customHeaders.value = _processCustomHeaders(map['customHeaders']);
     }
     SettingsSvc.settings.finishedSetup.value = map['finishedSetup'] ?? SettingsSvc.settings.finishedSetup.value;
+    SettingsSvc.settings.iMessageEnabled.value =
+        map['iMessageEnabled'] ?? SettingsSvc.settings.iMessageEnabled.value;
     SettingsSvc.settings.reachedConversationList.value =
         map['reachedConversationList'] ?? SettingsSvc.settings.reachedConversationList.value;
     SettingsSvc.settings.autoDownload.value = map['autoDownload'] ?? SettingsSvc.settings.autoDownload.value;
@@ -696,6 +704,7 @@ class Settings {
     debugPrint('Loading Custom Headers from map: ${map['customHeaders']}');
     s.customHeaders.value = _processCustomHeaders(map['customHeaders']);
     s.finishedSetup.value = map['finishedSetup'] ?? false;
+    s.iMessageEnabled.value = map['iMessageEnabled'] ?? true;
     s.reachedConversationList.value = map['reachedConversationList'] ?? false;
     s.autoDownload.value = map['autoDownload'] ?? true;
     s.onlyWifiDownload.value = map['onlyWifiDownload'] ?? false;

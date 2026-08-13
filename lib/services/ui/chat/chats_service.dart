@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
+import 'package:bluebubbles/services/backend/sms/imessage_mode.dart';
 import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/app/layouts/chat_creator/chat_creator.dart';
 import 'package:bluebubbles/app/layouts/chat_creator/new_chat_creator.dart';
@@ -132,11 +133,17 @@ class ChatsService {
   }) {
     var chats = allChats;
 
-    // TN fork: collapse a contact's paired Android-SMS chat into their
-    // BlueBubbles (iMessage/Text-Forwarding) chat — one row per contact. Our
-    // `SMS;-;tn:` chat is hidden when a BB 1:1 chat exists for the same number;
-    // SMS-only contacts keep their own row. O(n): collect BB numbers, then filter.
-    {
+    // TN fork: with iMessage switched off the app is a plain Android SMS client,
+    // so everything the BlueBubbles server provides disappears — iMessage threads
+    // and iPhone Text-Forwarding threads alike. A contact who has both keeps only
+    // their SMS row, which is the opposite of the merge below.
+    if (!IMessageMode.enabled) {
+      chats = chats.where((c) => !IMessageMode.isServerChat(c)).toList();
+    } else {
+      // TN fork: collapse a contact's paired Android-SMS chat into their
+      // BlueBubbles (iMessage/Text-Forwarding) chat — one row per contact. Our
+      // `SMS;-;tn:` chat is hidden when a BB 1:1 chat exists for the same number;
+      // SMS-only contacts keep their own row. O(n): collect BB numbers, then filter.
       final bbNumbers = <String>{};
       for (final c in chats) {
         if (ChatMerge.isOurSms(c)) continue;

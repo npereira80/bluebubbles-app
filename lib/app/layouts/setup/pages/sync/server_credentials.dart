@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:bluebubbles/app/layouts/settings/dialogs/custom_headers_dialog.dart';
 import 'package:bluebubbles/app/layouts/setup/dialogs/failed_to_scan_dialog.dart';
+import 'package:bluebubbles/app/layouts/setup/dialogs/sms_only_dialog.dart';
 import 'package:bluebubbles/app/layouts/setup/pages/page_template.dart';
 import 'package:bluebubbles/app/layouts/setup/pages/sync/qr_code_scanner.dart';
 import 'package:bluebubbles/app/layouts/setup/setup_view.dart';
@@ -344,6 +345,28 @@ class _ServerCredentialsState extends State<ServerCredentials> with ThemeHelpers
                     ),
                   ),
                 ),
+              // TN fork: a Bubbles server is optional. Without one the app is
+              // still a working SMS client, so don't make the server a wall the
+              // user has to get past to reach their messages.
+              if (Platform.isAndroid && showLoginButtons.value) ...[
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (_) => const SmsOnlyDialog(),
+                    );
+                  },
+                  child: Text(
+                    "Skip — use SMS only",
+                    style: context.theme.textTheme.bodyLarge!.apply(
+                      fontSizeFactor: 1.1,
+                      color: context.theme.colorScheme.outline,
+                    ),
+                  ),
+                ),
+              ],
               if (googleName.value == null && !kIsWeb && !kIsDesktop && showLoginButtons.value)
                 const SizedBox(height: 10),
               if (googleName.value == null)
