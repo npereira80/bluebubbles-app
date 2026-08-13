@@ -129,6 +129,50 @@ List<Widget> buildSettingItemList({
           ],
         ),
       ),
+    // TN Messages fork — silence the connection banners
+    if (Platform.isAndroid)
+      SearchableSettingItem(
+        title: "Disable Server Offline",
+        searchTags: ["Offline", "Banner", "Warning", "Server offline", "Hide offline", "Ignore offline"],
+        child: SettingsSection(
+          backgroundColor: tileColor,
+          children: [
+            Obx(() => SettingsSwitch(
+                  initialVal: SettingsSvc.settings.ignoreIMessageOffline.value,
+                  onChanged: (bool val) async {
+                    SettingsSvc.settings.ignoreIMessageOffline.value = val;
+                    await SettingsSvc.settings.saveOneAsync('ignoreIMessageOffline');
+                  },
+                  title: "Ignore iMessage Server Offline",
+                  subtitle: "Hide the red bar when the Bubbles server can't be reached.",
+                  isThreeLine: true,
+                  backgroundColor: tileColor,
+                  leading: const SettingsLeadingIcon(
+                    iosIcon: CupertinoIcons.bell_slash,
+                    materialIcon: Icons.notifications_off_outlined,
+                    containerColor: Colors.red,
+                  ),
+                )),
+            Obx(() => SettingsSwitch(
+                  initialVal: SettingsSvc.settings.ignoreSmsOffline.value,
+                  onChanged: (bool val) async {
+                    SettingsSvc.settings.ignoreSmsOffline.value = val;
+                    await SettingsSvc.settings.saveOneAsync('ignoreSmsOffline');
+                  },
+                  title: "Ignore SMS Server Offline",
+                  subtitle: "Hide the yellow bar when the SMS sync server can't be reached. "
+                      "SMS keeps sending and receiving over the SIM either way.",
+                  isThreeLine: true,
+                  backgroundColor: tileColor,
+                  leading: const SettingsLeadingIcon(
+                    iosIcon: CupertinoIcons.bell_slash,
+                    materialIcon: Icons.notifications_off_outlined,
+                    containerColor: Colors.amber,
+                  ),
+                )),
+          ],
+        ),
+      ),
     // TN Messages fork — local Android SMS control panel
     if (Platform.isAndroid)
       SearchableSettingItem(

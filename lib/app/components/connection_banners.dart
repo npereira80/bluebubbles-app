@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:bluebubbles/services/backend/settings/settings_service.dart';
 import 'package:bluebubbles/services/backend/sms/imessage_mode.dart';
 import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/services/network/socket_service.dart';
@@ -108,15 +109,22 @@ class _ConnectionBannersState extends State<ConnectionBanners> {
     return Obx(() {
       final problems = <({String text, bool warning})>[];
 
+      final bool muteIMessage = SettingsSvc.settings.ignoreIMessageOffline.value;
+      final bool muteSms = SettingsSvc.settings.ignoreSmsOffline.value;
+
       if (!_online) {
-        problems.add((text: "No internet connection", warning: true));
+        // Only silenced when both warnings are off — otherwise a user who muted
+        // one server would lose the one bar that explains why nothing works.
+        if (!(muteIMessage && muteSms)) {
+          problems.add((text: "No internet connection", warning: true));
+        }
       } else {
         // Nothing about the BlueBubbles server is worth reporting when the user
         // has switched that half of the app off.
-        if (widget.showIMessage && IMessageMode.enabled && _socketDown) {
+        if (widget.showIMessage && !muteIMessage && IMessageMode.enabled && _socketDown) {
           problems.add((text: "iMessage server offline", warning: false));
         }
-        if (SmsSvc.serverOnline.value == false) {
+        if (!muteSms && SmsSvc.serverOnline.value == false) {
           problems.add((text: "SMS server offline", warning: true));
         }
       }

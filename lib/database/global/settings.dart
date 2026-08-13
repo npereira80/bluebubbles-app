@@ -29,6 +29,11 @@ class Settings {
   /// chats in the list. The local database and sync cursors are kept, so
   /// turning it back on resumes rather than re-downloading.
   final RxBool iMessageEnabled = true.obs;
+  /// TN fork — silence the connection banners. Separate switches because the two
+  /// servers fail for different reasons and users tolerate them differently: a
+  /// self-hosted Mac that sleeps overnight is expected, a dead sync server isn't.
+  final RxBool ignoreIMessageOffline = false.obs;
+  final RxBool ignoreSmsOffline = false.obs;
   final RxBool reachedConversationList = false.obs;
   final RxBool autoDownload = true.obs;
   final RxBool onlyWifiDownload = false.obs;
@@ -426,6 +431,8 @@ class Settings {
         'customHeaders': Map<String, String>.from(customHeaders.value),
         'finishedSetup': finishedSetup.value,
         'iMessageEnabled': iMessageEnabled.value,
+        'ignoreIMessageOffline': ignoreIMessageOffline.value,
+        'ignoreSmsOffline': ignoreSmsOffline.value,
         'reachedConversationList': reachedConversationList.value,
         'colorsFromMedia': colorsFromMedia.value,
         'userAvatarPath': userAvatarPath.value,
@@ -705,6 +712,8 @@ class Settings {
     s.customHeaders.value = _processCustomHeaders(map['customHeaders']);
     s.finishedSetup.value = map['finishedSetup'] ?? false;
     s.iMessageEnabled.value = map['iMessageEnabled'] ?? true;
+    s.ignoreIMessageOffline.value = map['ignoreIMessageOffline'] ?? false;
+    s.ignoreSmsOffline.value = map['ignoreSmsOffline'] ?? false;
     s.reachedConversationList.value = map['reachedConversationList'] ?? false;
     s.autoDownload.value = map['autoDownload'] ?? true;
     s.onlyWifiDownload.value = map['onlyWifiDownload'] ?? false;
