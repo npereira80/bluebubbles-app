@@ -47,24 +47,53 @@ class ConnectionBanners extends StatefulWidget {
   State<ConnectionBanners> createState() => _ConnectionBannersState();
 }
 
-class _ConnectionBannersState extends State<ConnectionBanners> {
+/// Tracks how long the BlueBubbles socket has been down, app-wide.
+///
+/// Deliberately global rather than per-banner: the grace period used to live in
+/// the widget, so opening a conversation built a fresh one and restarted the
+/// countdown from zero — the bar was on the chat list and gone inside the thread.
+/// Whether the server is down is a property of the app, not of a screen.
+class SocketOffline {
   /// The socket drops briefly all the time (screen off, network handover). Only
   /// call it offline once it has stayed down, so the bar doesn't flicker.
-  static const Duration _socketGrace = Duration(seconds: 6);
+  static const Duration grace = Duration(seconds: 6);
 
+  static final RxBool isDown = false.obs;
+
+  static Worker? _worker;
+  static Timer? _timer;
+
+  /// Idempotent: safe to call from every banner that mounts.
+  static void ensureWatching() {
+    if (_worker != null) return;
+    _worker = ever(SocketSvc.state, _onState);
+    _onState(SocketSvc.state.value);
+  }
+
+  static void _onState(SocketState state) {
+    if (state == SocketState.connected) {
+      _timer?.cancel();
+      _timer = null;
+      isDown.value = false;
+      return;
+    }
+    if (isDown.value || (_timer?.isActive ?? false)) return;
+    _timer = Timer(grace, () {
+      isDown.value = SocketSvc.state.value != SocketState.connected;
+    });
+  }
+}
+
+class _ConnectionBannersState extends State<ConnectionBanners> {
   bool _online = true;
-  bool _socketDown = false;
   StreamSubscription<List<ConnectivityResult>>? _connectivity;
-  Timer? _socketTimer;
-  Worker? _socketWorker;
 
   @override
   void initState() {
     super.initState();
     _checkConnectivity();
     _connectivity = Connectivity().onConnectivityChanged.listen(_onConnectivity);
-    _socketWorker = ever(SocketSvc.state, _onSocketState);
-    _onSocketState(SocketSvc.state.value);
+    SocketOffline.ensureWatching();
   }
 
   Future<void> _checkConnectivity() async {
@@ -81,26 +110,9 @@ class _ConnectionBannersState extends State<ConnectionBanners> {
     if (mounted && online != _online) setState(() => _online = online);
   }
 
-  void _onSocketState(SocketState state) {
-    if (state == SocketState.connected) {
-      _socketTimer?.cancel();
-      if (mounted && _socketDown) setState(() => _socketDown = false);
-      return;
-    }
-    if (_socketDown || (_socketTimer?.isActive ?? false)) return;
-    _socketTimer = Timer(_socketGrace, () {
-      if (!mounted) return;
-      if (SocketSvc.state.value != SocketState.connected) {
-        setState(() => _socketDown = true);
-      }
-    });
-  }
-
   @override
   void dispose() {
     _connectivity?.cancel();
-    _socketWorker?.dispose();
-    _socketTimer?.cancel();
     super.dispose();
   }
 
@@ -121,7 +133,7 @@ class _ConnectionBannersState extends State<ConnectionBanners> {
       } else {
         // Nothing about the BlueBubbles server is worth reporting when the user
         // has switched that half of the app off.
-        if (widget.showIMessage && !muteIMessage && IMessageMode.enabled && _socketDown) {
+        if (widget.showIMessage && !muteIMessage && IMessageMode.enabled && SocketOffline.isDown.value) {
           problems.add((text: "iMessage server offline", warning: false));
         }
         if (!muteSms && SmsSvc.serverOnline.value == false) {
