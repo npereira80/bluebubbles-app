@@ -1129,13 +1129,20 @@ class SmsService {
       final msgs = (data['messages'] as List?) ?? const [];
       for (final m in msgs) {
         final sm = (m as Map).cast<String, dynamic>();
-        await _insert({
-          'address': sm['address'],
-          'body': sm['body'],
-          'date': (sm['ts'] as num?)?.toInt() ?? 0,
-          'isFromMe': sm['direction'] == 'out',
-          'providerId': null,
-        });
+        final atts = (sm['attachments'] as List?) ?? const [];
+        if (atts.isNotEmpty) {
+          // MMS: the server keeps the media too, so restore the pictures rather
+          // than an empty bubble where one used to be.
+          await _insertServerMms(sm, atts);
+        } else {
+          await _insert({
+            'address': sm['address'],
+            'body': sm['body'],
+            'date': (sm['ts'] as num?)?.toInt() ?? 0,
+            'isFromMe': sm['direction'] == 'out',
+            'providerId': null,
+          });
+        }
       }
       await _applyServerDeletions((data['deletions'] as List?) ?? const []);
       await _applyServerReadState((data['conversations'] as List?) ?? const []);
@@ -1434,6 +1441,100 @@ class SmsService {
 
     final hydrated = Message.findOne(guid: message.guid) ?? message;
     ChatMerge.reflectSmsIntoPairedChat(address, hydrated, markUnread: live && !isFromMe);
+  }
+
+  /// Restore an MMS pulled from the server, media included.
+  ///
+  /// The server stores the blobs content-addressed and hands back each
+  /// attachment's sha256 in /delta, so a restore can rebuild the picture rather
+  /// than leaving a bubble with nothing in it. Without this, a reinstall brought
+  /// back only the text of every MMS — and an MMS usually has none, which is why
+  /// they came back as invisible rows.
+  Future<void> _insertServerMms(Map<String, dynamic> sm, List<dynamic> atts) async {
+    await Database.waitForInit();
+    if (!GetIt.I.isRegistered<IncomingMessageHandler>()) return;
+
+    final String address = canonAddress(((sm['address'] as String?) ?? '').trim());
+    if (address.isEmpty) return;
+    final String body = (sm['body'] as String?) ?? '';
+    final int dateMs = (sm['ts'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+    final bool isFromMe = sm['direction'] == 'out';
+
+    final existingGuid = smsGuid(isFromMe: isFromMe, address: address, body: body, dateMs: dateMs);
+    final existing = Message.findOne(guid: existingGuid);
+    if (existing != null) {
+      // Already complete (pushed from this device, or a previous pull).
+      if (existing.hasAttachments && existing.dbAttachments.isNotEmpty) return;
+      // Present but hollow — an earlier restore that dropped the media. Replace
+      // it, otherwise its own existence would block the repair forever.
+      Logger.info('SmsService: re-restoring MMS media for a message that lost it');
+      await Message.delete(existingGuid);
+    }
+
+    final handle = Handle(address: address, service: 'SMS');
+    final chat = Chat(guid: 'SMS;-;tn:$address', chatIdentifier: address, participants: [handle]);
+
+    final attachments = <Attachment>[];
+    for (final a in atts) {
+      final att = (a as Map).cast<String, dynamic>();
+      final sha = att['sha256'] as String?;
+      if (sha == null || sha.isEmpty) continue;
+      final mime = (att['mime'] as String?) ?? 'application/octet-stream';
+      final name = ((att['name'] as String?)?.trim().isNotEmpty ?? false) ? att['name'] as String : 'mms_$sha';
+
+      Uint8List? bytes;
+      try {
+        bytes = await _server!.downloadMedia(sha);
+      } catch (e) {
+        Logger.warn('SmsService: media $sha not retrievable: $e');
+      }
+      if (bytes == null || bytes.isEmpty) continue;
+
+      final record = Attachment(
+        // Keyed by content hash, so the same picture pulled twice is one file.
+        guid: 'tn-mms-$sha',
+        mimeType: mime,
+        transferName: name,
+        totalBytes: bytes.length,
+        isOutgoing: isFromMe,
+        isDownloaded: true,
+      );
+      try {
+        final dir = dartio.Directory(record.directory);
+        if (!dir.existsSync()) dir.createSync(recursive: true);
+        dartio.File(record.path).writeAsBytesSync(bytes);
+        attachments.add(record);
+      } catch (e) {
+        Logger.warn('SmsService: failed writing restored MMS media to disk: $e');
+      }
+    }
+
+    // Every attachment failed: fall back to the text-only path rather than
+    // inserting a message that would render as nothing.
+    if (attachments.isEmpty && body.trim().isEmpty) {
+      Logger.warn('SmsService: skipping MMS with no recoverable media and no text');
+      return;
+    }
+
+    final message = Message(
+      guid: existingGuid,
+      text: body,
+      dateCreated: DateTime.fromMillisecondsSinceEpoch(dateMs),
+      isFromMe: isFromMe,
+      handle: isFromMe ? null : handle,
+      hasAttachments: attachments.isNotEmpty,
+    );
+
+    await IncomingMsgHandler.handle(IncomingPayload(
+      type: MessageEventType.newMessage,
+      source: MessageSource.methodChannel,
+      chat: chat,
+      message: message,
+      attachments: attachments,
+    ));
+
+    final hydrated = Message.findOne(guid: message.guid) ?? message;
+    ChatMerge.reflectSmsIntoPairedChat(address, hydrated, markUnread: false);
   }
 
   Future<void> _purgeSmsChats() async {
