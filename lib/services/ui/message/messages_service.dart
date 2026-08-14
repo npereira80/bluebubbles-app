@@ -753,7 +753,7 @@ class MessagesService extends GetxController {
         deletedGuids.add(message.guid!);
         await Message.delete(message.guid!);
         removeMessage(message);
-        removeFunc(message);
+        _removeFromView(message);
       }
 
       // The chat's latest-message pointer may now reference a row that's gone,
@@ -1361,6 +1361,7 @@ class MessagesService extends GetxController {
     await _pushSmsDelete(message);   // read attachment bytes before they're removed
     await Message.delete(deletedGuid);
     removeMessage(message);
+    _removeFromView(message);
     await _updateLatestMessageAfterDeletion(deletedGuid);
   }
 
@@ -1398,7 +1399,23 @@ class MessagesService extends GetxController {
     await _pushSmsDelete(message);
     await Message.softDelete(deletedGuid);
     removeMessage(message);
+    _removeFromView(message);
     await _updateLatestMessageAfterDeletion(deletedGuid);
+  }
+
+  /// Drop the row from the open thread.
+  ///
+  /// [removeMessage] only clears the struct and the message's state; the list the
+  /// view actually renders is separate. Without this the row stayed behind with
+  /// nothing left to draw — visible as a date separator with no message under it,
+  /// since every message renders its own separator.
+  void _removeFromView(Message message) {
+    if (!_init) return;
+    try {
+      removeFunc(message);
+    } catch (e, s) {
+      Logger.warn('Failed to remove deleted message from the view: $e', trace: s, tag: "MessagesService");
+    }
   }
 
   /// If [deletedGuid] was the chat's latest message, fetches the new latest from the
