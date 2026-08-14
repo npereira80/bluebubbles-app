@@ -15,7 +15,6 @@ import 'package:image_size_getter/file_input.dart';
 import 'package:image_size_getter/image_size_getter.dart' as isg;
 import 'package:path/path.dart';
 import 'package:bluebubbles/models/models.dart' show AttachmentUploadProgress;
-import 'package:permission_handler/permission_handler.dart';
 import 'package:saver_gallery/saver_gallery.dart';
 import 'package:universal_html/html.dart' as html;
 import 'package:universal_io/io.dart';
@@ -333,8 +332,10 @@ class AttachmentsService extends GetxService {
   }
 
   Future<bool> canAutoDownload() async {
-    final canSave = (await Permission.storage.request()).isGranted;
-    if (!canSave) return false;
+    // Attachments are written to the app's own directory, which never needed a
+    // storage permission — and since Android 13 that permission can't be granted
+    // at all, so requesting it returned denied and auto-download silently never
+    // happened however the setting was left.
     if (!SettingsSvc.settings.autoDownload.value) {
       return false;
     } else {

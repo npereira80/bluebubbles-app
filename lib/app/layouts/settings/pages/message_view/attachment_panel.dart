@@ -1,8 +1,11 @@
 import 'package:bluebubbles/helpers/helpers.dart';
+import 'dart:async';
+import 'package:bluebubbles/services/backend/sync/attachment_backfill.dart';
 import 'package:bluebubbles/app/layouts/settings/widgets/settings_widgets.dart';
 import 'package:bluebubbles/services/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -52,6 +55,49 @@ class _AttachmentPanelState extends State<AttachmentPanel> with ThemeHelpers {
                           title: "Only Auto-download Attachments on WiFi",
                           backgroundColor: tileColor,
                         )),
+                    const SettingsDivider(padding: EdgeInsets.only(left: 16.0)),
+                    // TN fork: a sync restores messages and attachment metadata,
+                    // but the files themselves only arrive when a message is
+                    // viewed. After moving to a new phone that means opening every
+                    // conversation to get the pictures back, so offer to fetch
+                    // them all in one go.
+                    Obx(() {
+                      final running = AttachmentBackfill.running.value;
+                      final done = AttachmentBackfill.done.value;
+                      final total = AttachmentBackfill.total.value;
+                      final failed = AttachmentBackfill.failed.value;
+                      return SettingsTile(
+                        title: running ? "Downloading attachments…" : "Download all attachments now",
+                        subtitle: running
+                            ? "$done of $total${failed > 0 ? " · $failed failed" : ""} · tap to stop"
+                            : "Fetch every attachment that isn't on this device yet. "
+                                "Uses mobile data unless you've limited downloads to WiFi.",
+                        isThreeLine: true,
+                        backgroundColor: tileColor,
+                        onTap: () async {
+                          if (running) {
+                            AttachmentBackfill.cancel();
+                            return;
+                          }
+                          final missing = AttachmentBackfill.missingCount();
+                          if (missing == 0) {
+                            showSnackbar('Attachments', 'Everything is already downloaded');
+                            return;
+                          }
+                          unawaited(AttachmentBackfill.start());
+                        },
+                        trailing: running
+                            ? SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  value: total == 0 ? null : (done + failed) / total,
+                                ),
+                              )
+                            : const Icon(CupertinoIcons.cloud_download),
+                      );
+                    }),
                     const SettingsDivider(padding: EdgeInsets.only(left: 16.0)),
                     Obx(() => SettingsTile(
                           title: "Max Concurrent Downloads",
