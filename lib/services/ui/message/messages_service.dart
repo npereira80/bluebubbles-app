@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:bluebubbles/app/state/attachment_state.dart';
 import 'package:bluebubbles/app/state/message_state.dart';
 import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
+import 'package:bluebubbles/services/backend/sms/imessage_mode.dart';
 import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:get_it/get_it.dart';
 import 'package:bluebubbles/helpers/types/extensions/extensions.dart';
@@ -678,6 +679,79 @@ class MessagesService extends GetxController {
     }
     _init = true;
     _setupRedactedModeListeners();
+
+    // TN fork: catch up on deletions made elsewhere. BlueBubbles has no "message
+    // deleted" socket event and incremental sync only asks for messages created
+    // after a cursor, so a message deleted on the Mac stays here forever. Opening
+    // the thread is the natural moment to notice.
+    unawaited(reconcileDeletionsWithServer());
+  }
+
+  /// Remove messages that the server no longer has.
+  ///
+  /// Positive reconciliation: ask the server for this chat's recent messages and
+  /// drop anything local in the same window that didn't come back. Bounded to the
+  /// window the response actually covers, so older history is never touched by a
+  /// short reply.
+  ///
+  /// Skipped for our own SMS chats (no server backing) and for locally-owned
+  /// messages — temp sends in flight, and SMS that were delivered into an
+  /// iMessage thread by the fallback, which the server has never seen.
+  Future<void> reconcileDeletionsWithServer({int limit = 75}) async {
+    if (kIsWeb) return;
+    if (!IMessageMode.enabled) return;
+    if (ChatMerge.isOurSms(chat)) return;
+
+    try {
+      final raw = await ChatsSvc.getMessages(chat.guid, limit: limit, sort: "DESC");
+      if (raw.isEmpty) return;
+
+      final serverGuids = <String>{};
+      int oldest = DateTime.now().millisecondsSinceEpoch;
+      for (final entry in raw) {
+        final map = (entry as Map).cast<String, dynamic>();
+        final guid = map['guid'] as String?;
+        if (guid != null) serverGuids.add(guid);
+        final created = (map['dateCreated'] as num?)?.toInt();
+        if (created != null && created < oldest) oldest = created;
+      }
+      if (serverGuids.isEmpty) return;
+
+      // A full page means there may be more the server didn't return; only trust
+      // the window we can see.
+      final local = await Chat.getMessagesAsync(chat, limit: limit * 2);
+      final stale = local.where((m) {
+        final guid = m.guid;
+        if (guid == null) return false;
+        if (serverGuids.contains(guid)) return false;
+        if (guid.startsWith('temp') || guid.startsWith('error-')) return false;
+        // Delivered over the SIM into this thread; the server never had it.
+        if (guid.startsWith('sms-')) return false;
+        final created = m.dateCreated?.millisecondsSinceEpoch;
+        if (created == null || created < oldest) return false;
+        return true;
+      }).toList();
+
+      if (stale.isEmpty) return;
+      Logger.info('[reconcile] ${chat.guid}: removing ${stale.length} message(s) deleted on the server',
+          tag: "MessagesService");
+
+      for (final message in stale) {
+        await Message.delete(message.guid!);
+        removeMessage(message);
+        removeFunc(message);
+      }
+
+      final newest = struct.messages.isEmpty
+          ? null
+          : (struct.messages.toList()..sort(Message.sort)).firstOrNull;
+      if (newest != null) ChatsSvc.updateChatLatestMessage(chat.guid, newest);
+    } catch (e) {
+      // Offline, or the server refused: leave everything alone. Deleting local
+      // history because a request failed would be far worse than showing a
+      // message that's already gone elsewhere.
+      Logger.debug('[reconcile] skipped for ${chat.guid}: $e', tag: "MessagesService");
+    }
   }
 
   /// Set up global listeners for redacted mode settings that update all message states
