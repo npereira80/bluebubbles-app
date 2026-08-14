@@ -23,6 +23,12 @@ class IMessageMode {
   static bool get enabled =>
       SettingsSvc.settings.iMessageEnabled.value && SettingsSvc.settings.serverAddress.value.isNotEmpty;
 
+  /// Whether turning iMessage on needs the server to be configured first.
+  ///
+  /// True for an install that has only ever done SMS: there's nothing to connect
+  /// to, so flipping the switch alone would do nothing at all.
+  static bool get needsServerSetup => SettingsSvc.settings.serverAddress.value.isEmpty;
+
   /// Whether a chat belongs to the BlueBubbles side. Those disappear while off,
   /// including iPhone Text-Forwarding threads: everything the server provides
   /// comes down with the connection.

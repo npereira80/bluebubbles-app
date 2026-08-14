@@ -16,8 +16,15 @@ import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:get/get.dart';
 
 class SetupViewController extends StatefulController {
-  final pageController = PageController(initialPage: 0);
-  int currentPage = 1;
+  SetupViewController({this.startPage = 0}) : pageController = PageController(initialPage: startPage);
+
+  /// Where to open. Non-zero when setup is re-entered to add a server to an
+  /// install that's been running SMS-only: welcome, permissions and battery are
+  /// already behind the user, so dropping them back at page one would be a
+  /// pointless walk through screens they've answered.
+  final int startPage;
+  final PageController pageController;
+  late int currentPage = startPage + 1;
   int numberToDownload = 25;
   bool skipEmptyChats = true;
   bool saveToDownloads = false;
@@ -45,14 +52,17 @@ class SetupViewController extends StatefulController {
 }
 
 class SetupView extends StatefulWidget {
-  const SetupView({super.key});
+  const SetupView({super.key, this.startPage = 0});
+
+  /// See [SetupViewController.startPage].
+  final int startPage;
 
   @override
   State<SetupView> createState() => _SetupViewState();
 }
 
 class _SetupViewState extends State<SetupView> {
-  final controller = Get.put(SetupViewController(), permanent: true);
+  late final controller = Get.put(SetupViewController(startPage: widget.startPage), permanent: true);
 
   @override
   void initState() {

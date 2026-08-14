@@ -1,4 +1,5 @@
 import 'package:bluebubbles/app/layouts/settings/widgets/settings_widgets.dart';
+import 'package:bluebubbles/app/layouts/setup/setup_view.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/services/backend/sms/imessage_mode.dart';
 import 'package:bluebubbles/services/services.dart';
@@ -7,6 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 /// TN Messages fork — the switch between "SMS + iMessage" and "SMS only".
+/// Index of ServerCredentials in SetupView's page list (welcome, permissions,
+/// battery, mac check, server). Mobile only — desktop/web has fewer pages, but
+/// this panel is Android-only anyway.
+const int _serverSetupPage = 4;
+
 class IMessagePanel extends StatefulWidget {
   const IMessagePanel({super.key});
 
@@ -19,6 +25,17 @@ class _IMessagePanelState extends State<IMessagePanel> with ThemeHelpers {
 
   Future<void> _toggle(bool value) async {
     if (_applying) return;
+
+    // Never configured: there's nothing to switch on yet, so send them through
+    // the server setup instead of flipping a switch that would do nothing.
+    // Setup itself enables iMessage once a server answers.
+    if (value && IMessageMode.needsServerSetup) {
+      // Straight to the server page — welcome, permissions and battery are
+      // already behind them.
+      Get.to(() => const SetupView(startPage: _serverSetupPage), transition: Transition.rightToLeft);
+      return;
+    }
+
     setState(() => _applying = true);
     try {
       // Closing the socket, reloading the list and (on re-enable) kicking off a

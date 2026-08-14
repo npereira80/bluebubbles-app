@@ -18,6 +18,15 @@ class SetupService extends GetxService {
     SyncSvc.syncGroupChatIcons = syncGroupChatIcons;
     SyncSvc.syncTimeFilter = syncTimeFilter;
 
+    // Reaching a full sync means a server answered, so the iMessage half is live
+    // again. An install that had been running SMS-only left this off, and
+    // syncing without turning it back on would download everything and then hide
+    // it.
+    if (!SettingsSvc.settings.iMessageEnabled.value) {
+      SettingsSvc.settings.iMessageEnabled.value = true;
+      await SettingsSvc.settings.saveOneAsync('iMessageEnabled');
+    }
+
     SyncSvc.initFullSync();
 
     // Pre-fetch server details before the full sync so sync managers can
@@ -40,6 +49,10 @@ class SetupService extends GetxService {
   }
 
   Future<void> _finishSetup() async {
+    // Re-entering setup to add a server to an install that's already running
+    // must not rewind the SMS cursors: those messages are already imported, and
+    // re-pulling them all would be work for nothing.
+    final firstRun = !SettingsSvc.settings.finishedSetup.value;
     SettingsSvc.settings.finishedSetup.value = true;
     await SettingsSvc.settings.saveOneAsync('finishedSetup');
     await StartupTasks.onStartup();
@@ -51,10 +64,12 @@ class SetupService extends GetxService {
     // land — otherwise an SMS-only install opens to an empty list.
     if (!kIsWeb && !kIsDesktop && GetIt.I.isRegistered<SmsService>()) {
       await SmsSvc.init();
-      // Reset the cursors first: an early pull may have advanced them past
-      // messages whose inserts went nowhere, and those never come back on their
-      // own. Cheap, and content hashes mean no duplicates.
-      await SmsSvc.fullResyncFromServer();
+      if (firstRun) {
+        // Reset the cursors first: an early pull may have advanced them past
+        // messages whose inserts went nowhere, and those never come back on
+        // their own. Cheap, and content hashes mean no duplicates.
+        await SmsSvc.fullResyncFromServer();
+      }
     }
   }
 }
