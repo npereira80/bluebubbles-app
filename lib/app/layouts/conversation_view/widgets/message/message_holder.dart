@@ -20,6 +20,7 @@ import 'package:bluebubbles/app/layouts/conversation_view/widgets/message/popup/
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/message/reply/reply_line_painter.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/message/text/text_bubble.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/message/timestamp/message_timestamp.dart';
+import 'package:bluebubbles/app/layouts/conversation_view/widgets/message/timestamp/service_separator.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/message/timestamp/timestamp_separator.dart';
 import 'package:bluebubbles/app/components/avatars/contact_avatar_widget.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
@@ -253,6 +254,8 @@ class _MessageHolderState extends State<MessageHolder> with ThemeHelpers {
             children: [
               // large timestamp between messages
               TimestampSeparator(olderMessage: olderMessage),
+              // "iMessage" / "SMS" divider when the thread switches route
+              ServiceSeparator(olderMessage: olderMessage),
               // use stack so avatar can be placed at bottom
               Row(
                 children: [
