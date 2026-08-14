@@ -19,6 +19,10 @@ import 'package:get/get.dart';
 /// Sequential on purpose: this can be thousands of files, and a burst of parallel
 /// downloads competes with the foreground UI and with the server's own disk.
 class AttachmentBackfill {
+  /// How long to wait on a single file before counting it as failed and moving
+  /// on. Generous because attachments include video.
+  static const Duration _perFileTimeout = Duration(minutes: 5);
+
   static final RxBool running = false.obs;
   static final RxInt total = 0.obs;
   static final RxInt done = 0.obs;
@@ -79,8 +83,10 @@ class AttachmentBackfill {
               if (!completer.isCompleted) completer.complete();
             },
           );
-          // A stalled download shouldn't strand the whole run.
-          await completer.future.timeout(const Duration(seconds: 60), onTimeout: () {
+          // A stalled download shouldn't strand the whole run, but the limit has
+          // to clear a large video on a slow connection — a timeout that gives up
+          // on a real download is worse than waiting.
+          await completer.future.timeout(_perFileTimeout, onTimeout: () {
             failed.value++;
           });
         } catch (e) {
