@@ -7,6 +7,7 @@ import 'package:bluebubbles/app/wrappers/stateful_boilerplate.dart';
 import 'package:bluebubbles/app/wrappers/titlebar_wrapper.dart';
 import 'package:bluebubbles/database/models.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
+import 'package:bluebubbles/services/backend/sms/imessage_mode.dart';
 import 'package:bluebubbles/services/services.dart';
 import 'package:bluebubbles/services/backend/interfaces/sync_interface.dart';
 import 'package:bluebubbles/services/ui/chat/send_data.dart';
@@ -69,6 +70,14 @@ class ChatCreatorController extends StatefulController {
     textController = MentionTextEditingController(text: initialText, focusNode: messageNode);
 
     selectedContacts.addAll(initialSelected);
+
+    // TN fork: SMS is the only route without a Bubbles server, so start there
+    // and treat it as settled — detection would otherwise flip it to iMessage
+    // for any contact that happens to have it, and the send would fail.
+    if (!IMessageMode.enabled) {
+      selectedService.value = ChatServiceType.sms;
+      _serviceChosenByUser = true;
+    }
 
     // Auto-select service based on pre-selected contacts' known iMessage status.
     // If any initial contact is explicitly non-iMessage, start on SMS.
@@ -189,6 +198,10 @@ class ChatCreatorController extends StatefulController {
     // Load contacts first (won't block chat loading)
     if (initialAttachments.isEmpty) {
       _allContacts = await ContactsSvcV2.getAllContacts();
+      // Show them straight away. They come from the phone and are ready now;
+      // making them wait on the chat list meant an empty screen whenever that
+      // was slow, and nothing at all when it never finished.
+      filteredContacts.value = _allContacts.where(_contactHasAddressForService).toList();
     }
 
     // Load chats

@@ -361,6 +361,10 @@ class ChatsService {
       hasChats.value = true;
     } else {
       loadedFirstChatBatch.value = true;
+      // "No chats" is a finished load, not an unfinished one. Leaving the
+      // completer hanging left anything awaiting it — the new-message screen —
+      // spinning on "Loading existing chats…" forever.
+      if (!loadedAllChats.isCompleted) loadedAllChats.complete();
       initDbWatchers();
       return;
     }
@@ -402,7 +406,7 @@ class ChatsService {
       _scheduleListVersionUpdate();
     }
 
-    loadedAllChats.complete();
+    if (!loadedAllChats.isCompleted) loadedAllChats.complete();
     Logger.info("Finished fetching chats (${chatStates.length}).", tag: "ChatBloc");
 
     // TN fork: heal chats whose latest-message pointer is dangling. The tile

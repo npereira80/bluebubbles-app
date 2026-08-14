@@ -1,5 +1,6 @@
 import 'package:bluebubbles/app/layouts/chat_creator/chat_creator_controller.dart';
 import 'package:bluebubbles/app/layouts/chat_creator/chat_service_type.dart';
+import 'package:bluebubbles/services/backend/sms/imessage_mode.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -14,6 +15,10 @@ class ServiceTypePicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // TN fork: with no Bubbles server there is only one way to send, so offering
+    // a choice would be a choice between working and not working.
+    if (!IMessageMode.enabled) return const SizedBox.shrink();
+
     final visibleTypes = ChatServiceType.values.where((t) => t.isVisible).toList();
     final primary = context.theme.colorScheme.primary;
     final onPrimary = context.theme.colorScheme.onPrimary;
