@@ -531,6 +531,29 @@ class Message {
 
   bool get isInteractive => balloonBundleId != null && !isLegacyUrlPreview;
 
+  /// TN fork: whether this message would draw absolutely nothing.
+  ///
+  /// Mirrors the conditions in MessageState.buildMessageParts — if none of them
+  /// produce a part, the row renders as empty space. That still costs a date
+  /// separator, because every message draws the separator above itself, which is
+  /// how these show up: a date heading with nothing under it.
+  ///
+  /// Deliberately conservative. A message that only says it has attachments is
+  /// not counted as empty, because those may still be downloading; only one with
+  /// no text, no attachment records, no payload and no group event qualifies.
+  bool get rendersNothing {
+    if (fullText.isNotEmpty) return false;
+    if (isGroupEvent || isInteractive || hasApplePayloadData || isLegacyUrlPreview) return false;
+    if (dbAttachments.isNotEmpty) return false;
+    if (attributedBody.firstOrNull?.runs.isNotEmpty ?? false) return false;
+    if (messageSummaryInfo.firstOrNull?.retractedParts.isNotEmpty ?? false) return false;
+    // An attachment that hasn't arrived yet: keep the row, it will fill in.
+    if (hasAttachments && (dateCreated?.isAfter(DateTime.now().subtract(const Duration(minutes: 5))) ?? false)) {
+      return false;
+    }
+    return true;
+  }
+
   String get interactiveText {
     String text = "";
 

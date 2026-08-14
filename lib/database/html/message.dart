@@ -318,6 +318,20 @@ class Message {
 
   bool get isInteractive => balloonBundleId != null && !isLegacyUrlPreview;
 
+  /// See the io implementation: a message that would draw nothing at all, and so
+  /// leaves only the date separator it carries.
+  bool get rendersNothing {
+    if (fullText.isNotEmpty) return false;
+    if (isGroupEvent || isInteractive || hasApplePayloadData || isLegacyUrlPreview) return false;
+    if (dbAttachments.isNotEmpty) return false;
+    if (attributedBody.firstOrNull?.runs.isNotEmpty ?? false) return false;
+    if (messageSummaryInfo.firstOrNull?.retractedParts.isNotEmpty ?? false) return false;
+    if (hasAttachments && (dateCreated?.isAfter(DateTime.now().subtract(const Duration(minutes: 5))) ?? false)) {
+      return false;
+    }
+    return true;
+  }
+
   String get interactiveText {
     String text = "";
     final temp =

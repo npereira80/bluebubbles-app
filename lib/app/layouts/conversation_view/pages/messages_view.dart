@@ -160,7 +160,10 @@ class MessagesViewState extends State<MessagesView> with MessagesServiceMixin, T
               error: e, trace: s, tag: 'MessagesView');
         }
 
-        _messages = service.struct.messages;
+        // TN fork: drop rows that can't draw anything. They're invisible except
+        // for the date separator each message carries, which is what left dates
+        // hanging over empty space.
+        _messages = service.struct.messages.where((m) => !m.rendersNothing).toList();
         _messages.sort(Message.sort);
 
         // Initialize the mixin's service reference and create controllers.
@@ -263,7 +266,7 @@ class MessagesViewState extends State<MessagesView> with MessagesServiceMixin, T
 
     if (newMessages.isNotEmpty) {
       createStatesForMessages(newMessages, controller);
-      _messages = List<Message>.from(messageService.struct.messages);
+      _messages = messageService.struct.messages.where((m) => !m.rendersNothing).toList();
       _messages.sort(Message.sort);
       _listKey = GlobalKey<SliverAnimatedListState>();
       if (mounted) setState(() {});
