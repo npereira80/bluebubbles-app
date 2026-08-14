@@ -79,6 +79,16 @@ class _SendAnimationState extends CustomState<SendAnimation, SendData, Conversat
       _smartReplyOffset +
       _platformVerticalOffset;
 
+  /// Whether an outgoing message in this thread goes over the SIM.
+  ///
+  /// One source of truth for both the routing and the animation's colour: they
+  /// used to be decided in different places, which is how a green SMS could fly
+  /// in as a blue bubble.
+  bool get _sendingAsSms =>
+      ChatMerge.isOurSms(controller.chat) ||
+      controller.chat.isSMS ||
+      SmsSendMode.isSms(controller.chat.guid);
+
   @override
   void initState() {
     super.initState();
@@ -138,9 +148,7 @@ class _SendAnimationState extends CustomState<SendAnimation, SendData, Conversat
     // set to SMS. Otherwise keep the current (iMessage) chat. This makes an
     // attachment follow the same SMS/iMessage choice as text instead of always
     // going out over iMessage.
-    final bool wantSms = ChatMerge.isOurSms(controller.chat) ||
-        controller.chat.isSMS ||
-        SmsSendMode.isSms(controller.chat.guid);
+    final bool wantSms = _sendingAsSms;
     final Chat sendChat = wantSms
         ? (ChatMerge.smsSendChat(controller.chat) ?? controller.chat)
         : controller.chat;
@@ -350,7 +358,15 @@ class _SendAnimationState extends CustomState<SendAnimation, SendData, Conversat
                         minWidth: messageBoxSize * exp,
                         minHeight: 36,
                       ),
-                      color: !message!.isBigEmoji ? context.theme.colorScheme.primary.darkenAmount(0.2) : null,
+                      // Colour by the route this message is actually taking, not
+                      // by the theme's primary. In a thread that supports both,
+                      // primary is iMessage blue, so an SMS reply flew in blue
+                      // over the green bubble already in place — and because this
+                      // sits on a BackdropFilter the two blended into a muddy
+                      // dark green until the animation cleared.
+                      color: !message!.isBigEmoji
+                          ? context.theme.colorScheme.bubble(context, !_sendingAsSms).darkenAmount(0.2)
+                          : null,
                       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 15).add(EdgeInsets.only(
                           left: message!.isFromMe! || message!.isBigEmoji ? 0 : 10,
                           right: message!.isFromMe! && !message!.isBigEmoji ? 10 : 0)),
