@@ -4,6 +4,7 @@ import 'package:bluebubbles/helpers/network/network_tasks.dart';
 import 'package:get_it/get_it.dart';
 import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/services/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:get/get.dart';
 
 SetupService setup = Get.isRegistered<SetupService>() ? Get.find<SetupService>() : Get.put(SetupService());
