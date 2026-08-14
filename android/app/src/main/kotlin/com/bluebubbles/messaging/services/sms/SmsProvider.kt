@@ -91,6 +91,61 @@ object SmsProvider {
         return uri?.lastPathSegment?.toLongOrNull() ?: -1L
     }
 
+    /**
+     * Write a message restored from our sync server into the system SMS store.
+     *
+     * Restored history used to live only in this app's own database, so swapping
+     * the default SMS app left it behind — invisible to the new app and to any
+     * backup that reads the system store.
+     *
+     * Returns false when a row with the same address, body and timestamp is
+     * already there, so a re-run is safe and a restore can't double up on what
+     * this device already received natively.
+     */
+    fun insertRestored(
+        context: Context,
+        address: String,
+        body: String,
+        dateMs: Long,
+        isFromMe: Boolean,
+        read: Boolean,
+    ): Boolean {
+        if (exists(context, address, body, dateMs)) return false
+        val values = ContentValues().apply {
+            put(Telephony.Sms.ADDRESS, address)
+            put(Telephony.Sms.BODY, body)
+            put(Telephony.Sms.DATE, dateMs)
+            put(Telephony.Sms.READ, if (read || isFromMe) 1 else 0)
+            put(
+                Telephony.Sms.TYPE,
+                if (isFromMe) Telephony.Sms.MESSAGE_TYPE_SENT else Telephony.Sms.MESSAGE_TYPE_INBOX,
+            )
+        }
+        val uri = context.contentResolver.insert(
+            if (isFromMe) Telephony.Sms.Sent.CONTENT_URI else Telephony.Sms.Inbox.CONTENT_URI,
+            values,
+        )
+        return uri != null
+    }
+
+    /**
+     * Whether the store already holds this message.
+     *
+     * Matched on a two-second window rather than an exact timestamp: the same
+     * message can carry slightly different times depending on whether it came
+     * from the radio or round-tripped through the server.
+     */
+    private fun exists(context: Context, address: String, body: String, dateMs: Long): Boolean {
+        val window = 2000L
+        return context.contentResolver.query(
+            SMS_URI,
+            arrayOf(Telephony.Sms._ID),
+            "${Telephony.Sms.BODY} = ? AND ${Telephony.Sms.DATE} BETWEEN ? AND ?",
+            arrayOf(body, (dateMs - window).toString(), (dateMs + window).toString()),
+            null,
+        )?.use { it.moveToFirst() } ?: false
+    }
+
     /** Mark all inbox messages from [address] as read. */
     fun markThreadRead(context: Context, address: String): Int {
         val values = ContentValues().apply { put(Telephony.Sms.READ, 1) }

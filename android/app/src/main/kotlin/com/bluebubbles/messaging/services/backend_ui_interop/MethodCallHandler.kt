@@ -37,6 +37,7 @@ import com.bluebubbles.messaging.services.sms.SmsMarkReadHandler
 import com.bluebubbles.messaging.services.sms.SmsPermissionsHandler
 import com.bluebubbles.messaging.services.sms.SmsQueryHandler
 import com.bluebubbles.messaging.services.sms.SmsRequestDefaultHandler
+import com.bluebubbles.messaging.services.sms.SmsRestoreToStoreHandler
 import com.bluebubbles.messaging.services.sms.SmsRequestPermissionsHandler
 import com.bluebubbles.messaging.services.sms.SmsSendHandler
 import com.bluebubbles.messaging.services.sms.SmsSimInfoHandler
@@ -149,6 +150,7 @@ class MethodCallHandler {
             // TN Messages fork — SMS engine
             SmsIsDefaultHandler.tag -> SmsIsDefaultHandler().handleMethodCall(call, result, context)
             SmsRequestDefaultHandler.tag -> SmsRequestDefaultHandler().handleMethodCall(call, result, context)
+            SmsRestoreToStoreHandler.tag -> SmsRestoreToStoreHandler().handleMethodCall(call, result, context)
             SmsPermissionsHandler.tag -> SmsPermissionsHandler().handleMethodCall(call, result, context)
             SmsRequestPermissionsHandler.tag -> SmsRequestPermissionsHandler().handleMethodCall(call, result, context)
             SmsQueryHandler.tag -> SmsQueryHandler().handleMethodCall(call, result, context)

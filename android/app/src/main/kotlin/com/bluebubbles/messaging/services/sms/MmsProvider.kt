@@ -1,6 +1,7 @@
 package com.bluebubbles.messaging.services.sms
 
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.provider.Telephony
@@ -138,6 +139,129 @@ object MmsProvider {
             Log.e(Constants.logTag, "MmsProvider: failed reading part $partId", e)
             null
         }
+    }
+
+    /**
+     * Write an MMS restored from our sync server into the system store: the
+     * message row, its address rows, and one part per attachment (plus a text
+     * part when there's a caption).
+     *
+     * Unlike an SMS this is several inserts — the provider models an MMS as a
+     * PDU with children — and the parts have to be written through the part
+     * URI's stream, not as a byte column.
+     *
+     * Returns false if an MMS with the same timestamp is already present, so a
+     * re-run is safe.
+     */
+    fun insertRestored(
+        context: Context,
+        address: String,
+        body: String,
+        dateMs: Long,
+        isFromMe: Boolean,
+        read: Boolean,
+        parts: List<Map<String, Any?>>,
+    ): Boolean {
+        val dateSec = dateMs / 1000
+        if (exists(context, dateSec)) return false
+
+        val threadId = try {
+            Telephony.Threads.getOrCreateThreadId(context, address)
+        } catch (e: Exception) {
+            Log.w(Constants.logTag, "MMS restore: no thread id for the address: ${e.message}")
+            return false
+        }
+
+        val values = ContentValues().apply {
+            put(Telephony.Mms.THREAD_ID, threadId)
+            put(Telephony.Mms.DATE, dateSec)                 // the MMS table is in seconds
+            put(Telephony.Mms.READ, if (read || isFromMe) 1 else 0)
+            put(Telephony.Mms.MESSAGE_BOX, if (isFromMe) Telephony.Mms.MESSAGE_BOX_SENT else Telephony.Mms.MESSAGE_BOX_INBOX)
+            put(Telephony.Mms.MESSAGE_TYPE, 132)             // M_RETRIEVE_CONF
+            put(Telephony.Mms.MMS_VERSION, 18)
+            put(Telephony.Mms.CONTENT_TYPE, "application/vnd.wap.multipart.related")
+            put(Telephony.Mms.SEEN, 1)
+        }
+        val messageUri = context.contentResolver.insert(MMS_URI, values) ?: return false
+        val mmsId = messageUri.lastPathSegment?.toLongOrNull() ?: return false
+
+        // Addresses: who it's from and who it's to. "Me" is written as the
+        // provider's placeholder token rather than our own number, which we may
+        // not even know.
+        insertAddress(context, mmsId, if (isFromMe) INSERT_ADDRESS_TOKEN else address, ADDR_FROM)
+        insertAddress(context, mmsId, if (isFromMe) address else INSERT_ADDRESS_TOKEN, ADDR_TO)
+
+        if (body.isNotEmpty()) insertTextPart(context, mmsId, body)
+        var index = 0
+        for (part in parts) {
+            val bytes = part["bytes"] as? ByteArray ?: continue
+            val mime = part["mime"] as? String ?: "application/octet-stream"
+            val name = part["name"] as? String ?: "part_$index"
+            insertMediaPart(context, mmsId, mime, name, bytes, index)
+            index++
+        }
+        return true
+    }
+
+    private fun exists(context: Context, dateSec: Long): Boolean {
+        return context.contentResolver.query(
+            MMS_URI,
+            arrayOf(Telephony.Mms._ID),
+            "${Telephony.Mms.DATE} = ?",
+            arrayOf(dateSec.toString()),
+            null,
+        )?.use { it.moveToFirst() } ?: false
+    }
+
+    private fun insertAddress(context: Context, mmsId: Long, address: String, type: Int) {
+        val values = ContentValues().apply {
+            put("address", address)
+            put("type", type)
+            put("charset", 106)                              // UTF-8
+        }
+        runCatching {
+            context.contentResolver.insert(Uri.parse("content://mms/$mmsId/addr"), values)
+        }.onFailure { Log.w(Constants.logTag, "MMS restore: address row failed: ${it.message}") }
+    }
+
+    private fun insertTextPart(context: Context, mmsId: Long, text: String) {
+        val values = ContentValues().apply {
+            put("mid", mmsId)
+            put("seq", 0)
+            put("ct", "text/plain")
+            put("chset", 106)
+            put("name", "text.txt")
+            put("text", text)
+        }
+        runCatching { context.contentResolver.insert(PART_URI, values) }
+            .onFailure { Log.w(Constants.logTag, "MMS restore: text part failed: ${it.message}") }
+    }
+
+    private fun insertMediaPart(
+        context: Context,
+        mmsId: Long,
+        mime: String,
+        name: String,
+        bytes: ByteArray,
+        index: Int,
+    ) {
+        val values = ContentValues().apply {
+            put("mid", mmsId)
+            put("seq", index)
+            put("ct", mime)
+            put("name", name)
+            put("cid", "<$name>")
+            put("cl", name)
+        }
+        val uri = runCatching { context.contentResolver.insert(PART_URI, values) }.getOrNull()
+        if (uri == null) {
+            Log.w(Constants.logTag, "MMS restore: could not create part row")
+            return
+        }
+        // Bytes go through the stream; there's no column to write them to.
+        runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+        }.onFailure { Log.w(Constants.logTag, "MMS restore: writing part bytes failed: ${it.message}") }
     }
 
     /** Delete an MMS by provider _id (used when a message is deleted in the UI). */

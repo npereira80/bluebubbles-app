@@ -12,6 +12,8 @@ import android.provider.Settings
 import android.provider.Telephony
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import android.util.Log
+import com.bluebubbles.messaging.Constants
 import com.bluebubbles.messaging.models.MethodCallHandlerImpl
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -214,5 +216,46 @@ class SmsSimInfoHandler : MethodCallHandlerImpl() {
     companion object { const val tag = "sms-sim-info" }
     override fun handleMethodCall(call: MethodCall, result: MethodChannel.Result, context: Context) {
         result.success(SimInfo.read(context))
+    }
+}
+
+/**
+ * Write messages restored from our sync server into the system SMS/MMS store.
+ *
+ * Restored history used to exist only inside this app, so switching default SMS
+ * app left it behind. Args: `messages` — a list of maps with address, body,
+ * date (ms), isFromMe, read, and for MMS a `parts` list of {bytes, mime, name}.
+ * Returns how many rows were actually written; ones already present are skipped.
+ */
+class SmsRestoreToStoreHandler : MethodCallHandlerImpl() {
+    companion object { const val tag = "sms-restore-to-store" }
+
+    override fun handleMethodCall(call: MethodCall, result: MethodChannel.Result, context: Context) {
+        val messages = call.argument<List<Map<String, Any?>>>("messages") ?: emptyList()
+        var written = 0
+        for (m in messages) {
+            val address = (m["address"] as? String)?.trim().orEmpty()
+            if (address.isEmpty()) continue
+            val body = (m["body"] as? String).orEmpty()
+            val date = (m["date"] as? Number)?.toLong() ?: continue
+            val isFromMe = (m["isFromMe"] as? Boolean) ?: false
+            val read = (m["read"] as? Boolean) ?: true
+
+            @Suppress("UNCHECKED_CAST")
+            val parts = (m["parts"] as? List<Map<String, Any?>>).orEmpty()
+
+            val ok = try {
+                if (parts.isEmpty()) {
+                    SmsProvider.insertRestored(context, address, body, date, isFromMe, read)
+                } else {
+                    MmsProvider.insertRestored(context, address, body, date, isFromMe, read, parts)
+                }
+            } catch (e: Exception) {
+                Log.w(Constants.logTag, "Restore to store failed for one message: ${e.message}")
+                false
+            }
+            if (ok) written++
+        }
+        result.success(written)
     }
 }

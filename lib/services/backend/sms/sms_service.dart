@@ -1124,37 +1124,81 @@ class SmsService {
     _pulling = true;
     try {
       final prefs = await _sp;
-      final int since = prefs.getInt(_kPullCursor) ?? 0;
-      final data = await _server!.delta(since);
-      final msgs = (data['messages'] as List?) ?? const [];
-      for (final m in msgs) {
-        final sm = (m as Map).cast<String, dynamic>();
-        final atts = (sm['attachments'] as List?) ?? const [];
-        if (atts.isNotEmpty) {
-          // MMS: the server keeps the media too, so restore the pictures rather
-          // than an empty bubble where one used to be.
-          await _insertServerMms(sm, atts);
-        } else {
-          await _insert({
-            'address': sm['address'],
-            'body': sm['body'],
-            'date': (sm['ts'] as num?)?.toInt() ?? 0,
-            'isFromMe': sm['direction'] == 'out',
-            'providerId': null,
-          });
-        }
+      int since = prefs.getInt(_kPullCursor) ?? 0;
+      // /delta returns at most 2000 rows per call. Fetching a single page per
+      // tick meant a restore trickled in over minutes and looked like messages
+      // were missing, so drain until the cursor stops moving. The bound stops a
+      // server that never advances from spinning here forever.
+      for (int page = 0; page < 200; page++) {
+        final int before = since;
+        since = await _pullPage(prefs, since);
+        if (since <= before) break;
       }
-      await _applyServerDeletions((data['deletions'] as List?) ?? const []);
-      await _applyServerReadState((data['conversations'] as List?) ?? const []);
-      final int cursor = (data['cursor'] as num?)?.toInt() ?? since;
-      await prefs.setInt(_kPullCursor, cursor);
-      if (msgs.isNotEmpty) Logger.info('SmsService: pulled ${msgs.length} SMS (cursor $since -> $cursor)');
       return true;
     } catch (e) {
       Logger.warn('SmsService: pull deferred (will retry): $e');
       return false;
     } finally {
       _pulling = false;
+    }
+  }
+
+  /// One page of /delta. Returns the new cursor.
+  Future<int> _pullPage(SharedPreferences prefs, int since) async {
+    final data = await _server!.delta(since);
+    final msgs = (data['messages'] as List?) ?? const [];
+
+    // Restored history has to reach Android's own SMS store as well, or it stays
+    // invisible to every other messaging app and to any backup that reads it.
+    final forStore = <Map<String, dynamic>>[];
+
+    for (final m in msgs) {
+      final sm = (m as Map).cast<String, dynamic>();
+      final atts = (sm['attachments'] as List?) ?? const [];
+      if (atts.isNotEmpty) {
+        // MMS: the server keeps the media too, so restore the pictures rather
+        // than an empty bubble where one used to be.
+        final stored = await _insertServerMms(sm, atts);
+        if (stored != null) forStore.add(stored);
+      } else {
+        final map = <String, dynamic>{
+          'address': sm['address'],
+          'body': sm['body'],
+          'date': (sm['ts'] as num?)?.toInt() ?? 0,
+          'isFromMe': sm['direction'] == 'out',
+          'providerId': null,
+        };
+        await _insert(map);
+        forStore.add({...map, 'read': true});
+      }
+    }
+
+    await _writeRestoredToStore(forStore);
+    await _applyServerDeletions((data['deletions'] as List?) ?? const []);
+    await _applyServerReadState((data['conversations'] as List?) ?? const []);
+
+    final int cursor = (data['cursor'] as num?)?.toInt() ?? since;
+    await prefs.setInt(_kPullCursor, cursor);
+    if (msgs.isNotEmpty) Logger.info('SmsService: pulled ${msgs.length} message(s) (cursor $since -> $cursor)');
+    return cursor;
+  }
+
+  /// Hand restored messages to Android's SMS/MMS store.
+  ///
+  /// Only meaningful while we hold the SMS role — the provider rejects writes
+  /// otherwise — so it's skipped rather than failing loudly when we don't.
+  /// Native skips any row already present, so re-running is harmless.
+  Future<void> _writeRestoredToStore(List<Map<String, dynamic>> messages) async {
+    if (messages.isEmpty) return;
+    if (!isDefaultSmsApp.value) return;
+    try {
+      final written = await MethodChannelSvc.invokeMethod('sms-restore-to-store', {'messages': messages});
+      if (written is int && written > 0) {
+        Logger.info('SmsService: wrote $written restored message(s) into the Android store');
+      }
+    } catch (e) {
+      // The history is already in the app; the system store is a bonus.
+      Logger.warn('SmsService: could not write restored messages to the Android store: $e');
     }
   }
 
@@ -1281,10 +1325,20 @@ class SmsService {
     required String address,
     required String body,
     required int dateMs,
+    List<String> mediaHashes = const [],
   }) {
     final addr = canonAddress(address);
     final dir = isFromMe ? 'out' : 'in';
-    final key = isFromMe ? '$addr|$body|${dateMs ~/ 120000}' : '$addr|$body|$dateMs';
+    var key = isFromMe ? '$addr|$body|${dateMs ~/ 120000}' : '$addr|$body|$dateMs';
+    // Fold in media identity, exactly as the server's content hash does. An MMS
+    // usually has no text, so several sent close together produced the same key
+    // and all but one were discarded as duplicates — which is how a restore
+    // could bring back one photo out of five. Sorted for order-independence;
+    // text SMS pass an empty list and keep their existing identity.
+    if (mediaHashes.isNotEmpty) {
+      final sorted = [...mediaHashes]..sort();
+      key = '$key|${sorted.join(",")}';
+    }
     return 'sms-$dir-${_fnv1a(key)}';
   }
 
@@ -1394,6 +1448,7 @@ class SmsService {
 
     final List<dynamic> parts = (map['parts'] as List?) ?? const [];
     final List<Attachment> attachments = [];
+    final List<String> mediaHashes = [];
     for (final p in parts) {
       final part = (p as Map).cast<String, dynamic>();
       final int partId = (part['partId'] as num?)?.toInt() ?? -1;
@@ -1404,6 +1459,9 @@ class SmsService {
       final String name = ((part['name'] as String?)?.trim().isNotEmpty ?? false)
           ? (part['name'] as String)
           : 'mms_$partId';
+      // Same hash the server stores, so a message backfilled from the phone and
+      // the same message pulled back from the server resolve to one identity.
+      mediaHashes.add(sha256.convert(bytes).toString());
       final att = Attachment(
         guid: 'tn-mms-${_fnv1a("$address|$dateMs|$partId")}',
         mimeType: mime,
@@ -1423,7 +1481,8 @@ class SmsService {
     }
 
     final message = Message(
-      guid: smsGuid(isFromMe: isFromMe, address: address, body: body, dateMs: dateMs),
+      guid: smsGuid(
+          isFromMe: isFromMe, address: address, body: body, dateMs: dateMs, mediaHashes: mediaHashes),
       text: body,
       dateCreated: DateTime.fromMillisecondsSinceEpoch(dateMs),
       isFromMe: isFromMe,
@@ -1450,21 +1509,36 @@ class SmsService {
   /// than leaving a bubble with nothing in it. Without this, a reinstall brought
   /// back only the text of every MMS — and an MMS usually has none, which is why
   /// they came back as invisible rows.
-  Future<void> _insertServerMms(Map<String, dynamic> sm, List<dynamic> atts) async {
+  /// Returns a map describing the message for the Android store (including the
+  /// media bytes), or null when there was nothing worth writing.
+  Future<Map<String, dynamic>?> _insertServerMms(Map<String, dynamic> sm, List<dynamic> atts) async {
     await Database.waitForInit();
-    if (!GetIt.I.isRegistered<IncomingMessageHandler>()) return;
+    if (!GetIt.I.isRegistered<IncomingMessageHandler>()) return null;
 
     final String address = canonAddress(((sm['address'] as String?) ?? '').trim());
-    if (address.isEmpty) return;
+    if (address.isEmpty) return null;
     final String body = (sm['body'] as String?) ?? '';
     final int dateMs = (sm['ts'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
     final bool isFromMe = sm['direction'] == 'out';
 
-    final existingGuid = smsGuid(isFromMe: isFromMe, address: address, body: body, dateMs: dateMs);
+    final serverHashes = atts
+        .map((a) => ((a as Map).cast<String, dynamic>()['sha256'] as String?) ?? '')
+        .where((h) => h.isNotEmpty)
+        .toList();
+    // Identity is computed on whole seconds because that's all the Android MMS
+    // table stores. Without it, this same message read back from the provider
+    // after a restore would hash differently and appear twice. Provider-sourced
+    // MMS are already whole seconds, so they're unaffected.
+    final existingGuid = smsGuid(
+        isFromMe: isFromMe,
+        address: address,
+        body: body,
+        dateMs: (dateMs ~/ 1000) * 1000,
+        mediaHashes: serverHashes);
     final existing = Message.findOne(guid: existingGuid);
     if (existing != null) {
       // Already complete (pushed from this device, or a previous pull).
-      if (existing.hasAttachments && existing.dbAttachments.isNotEmpty) return;
+      if (existing.hasAttachments && existing.dbAttachments.isNotEmpty) return null;
       // Present but hollow — an earlier restore that dropped the media. Replace
       // it, otherwise its own existence would block the repair forever.
       Logger.info('SmsService: re-restoring MMS media for a message that lost it');
@@ -1475,6 +1549,7 @@ class SmsService {
     final chat = Chat(guid: 'SMS;-;tn:$address', chatIdentifier: address, participants: [handle]);
 
     final attachments = <Attachment>[];
+    final storeParts = <Map<String, dynamic>>[];
     for (final a in atts) {
       final att = (a as Map).cast<String, dynamic>();
       final sha = att['sha256'] as String?;
@@ -1489,6 +1564,7 @@ class SmsService {
         Logger.warn('SmsService: media $sha not retrievable: $e');
       }
       if (bytes == null || bytes.isEmpty) continue;
+      storeParts.add({'bytes': bytes, 'mime': mime, 'name': name});
 
       final record = Attachment(
         // Keyed by content hash, so the same picture pulled twice is one file.
@@ -1513,7 +1589,7 @@ class SmsService {
     // inserting a message that would render as nothing.
     if (attachments.isEmpty && body.trim().isEmpty) {
       Logger.warn('SmsService: skipping MMS with no recoverable media and no text');
-      return;
+      return null;
     }
 
     final message = Message(
@@ -1535,6 +1611,15 @@ class SmsService {
 
     final hydrated = Message.findOne(guid: message.guid) ?? message;
     ChatMerge.reflectSmsIntoPairedChat(address, hydrated, markUnread: false);
+
+    return {
+      'address': address,
+      'body': body,
+      'date': dateMs,
+      'isFromMe': isFromMe,
+      'read': true,
+      'parts': storeParts,
+    };
   }
 
   Future<void> _purgeSmsChats() async {
