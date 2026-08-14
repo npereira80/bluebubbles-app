@@ -250,6 +250,9 @@ class CreateIncomingMessageNotification: MethodCallHandlerImpl() {
 
         val summaryNotificationBuilder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.mipmap.ic_stat_icon)
+            // The launcher reads the badge count from the summary. Only launchers
+            // that show numbers use it; the rest fall back to a plain dot.
+            .setNumber(AppBadge.current)
             .setGroup(Constants.notificationGroupKey)
             .setGroupSummary(true)
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)

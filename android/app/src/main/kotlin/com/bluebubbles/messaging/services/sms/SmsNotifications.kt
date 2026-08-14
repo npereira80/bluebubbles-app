@@ -10,6 +10,7 @@ import android.provider.ContactsContract
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.bluebubbles.messaging.Constants
+import com.bluebubbles.messaging.services.notifications.AppBadge
 
 /**
  * Posts a system notification for an incoming SMS directly from the native
@@ -48,6 +49,7 @@ object SmsNotifications {
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
+            .setNumber(AppBadge.current)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(NotificationCompat.DEFAULT_ALL)

@@ -600,6 +600,21 @@ class ChatsService {
     }
     if (unreadCount.value != count) {
       unreadCount.value = count;
+      unawaited(_pushAppBadge(count));
+    }
+  }
+
+  /// Show the unread count on the launcher icon.
+  ///
+  /// Capped at 99: the launcher renders the number itself and decides how to
+  /// abbreviate a larger one, so sending 253 gets us whatever that launcher
+  /// prints rather than anything we chose.
+  Future<void> _pushAppBadge(int count) async {
+    if (kIsWeb || kIsDesktop) return;
+    try {
+      await MethodChannelSvc.invokeMethod('set-app-badge', {'count': count > 99 ? 99 : count});
+    } catch (_) {
+      // A launcher that doesn't do badges isn't worth logging on every change.
     }
   }
 

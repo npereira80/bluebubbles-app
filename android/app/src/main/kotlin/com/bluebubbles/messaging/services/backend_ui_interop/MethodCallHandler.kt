@@ -15,6 +15,7 @@ import com.bluebubbles.messaging.services.notifications.CreateIncomingMessageNot
 import com.bluebubbles.messaging.services.notifications.DeleteNotificationHandler
 import com.bluebubbles.messaging.services.notifications.NotificationChannelHandler
 import com.bluebubbles.messaging.services.notifications.NotificationListenerPermissionRequestHandler
+import com.bluebubbles.messaging.services.notifications.SetAppBadgeHandler
 import com.bluebubbles.messaging.services.notifications.StartNotificationListenerHandler
 import com.bluebubbles.messaging.services.notifications.UnifiedPushHandler
 import com.bluebubbles.messaging.services.system.BrowserLaunchRequestHandler
@@ -81,6 +82,7 @@ class MethodCallHandler {
             CreateIncomingMessageNotification.tag,
             CreateIncomingFaceTimeNotification.tag,
             DeleteNotificationHandler.tag,
+            SetAppBadgeHandler.tag,
             StartForegroundServiceHandler.tag,
             StopForegroundServiceHandler.tag,
         )
@@ -145,6 +147,7 @@ class MethodCallHandler {
             CreateIncomingMessageNotification.tag -> CreateIncomingMessageNotification().handleMethodCall(call, result, context)
             CreateIncomingFaceTimeNotification.tag -> CreateIncomingFaceTimeNotification().handleMethodCall(call, result, context)
             DeleteNotificationHandler.tag -> DeleteNotificationHandler().handleMethodCall(call, result, context)
+            SetAppBadgeHandler.tag -> SetAppBadgeHandler().handleMethodCall(call, result, context)
             StartForegroundServiceHandler.tag -> StartForegroundServiceHandler().handleMethodCall(call, result, context)
             StopForegroundServiceHandler.tag -> StopForegroundServiceHandler().handleMethodCall(call, result, context)
             // TN Messages fork — SMS engine
