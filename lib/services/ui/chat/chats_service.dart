@@ -314,6 +314,28 @@ class ChatsService {
     }
   }
 
+  /// Repoint any chat whose latest message no longer exists at its newest
+  /// surviving one.
+  ///
+  /// Deleting a chat's latest message leaves `dbLatestMessage` referencing a
+  /// deleted row. Nothing rebuilt it, so the conversation kept working while its
+  /// row in the list showed neither preview nor date. Runs once per launch and
+  /// only touches chats that are actually broken.
+  Future<void> repairMissingLatestMessages() async {
+    if (kIsWeb) return;
+    int repaired = 0;
+    for (final state in chatStates.values) {
+      if (state.latestMessage.value != null) continue;
+      final latest = Chat.getMessages(state.chat, limit: 1);
+      if (latest.isEmpty) continue;
+      updateChatLatestMessage(state.chat.guid, latest.first, allowOlder: true);
+      repaired++;
+    }
+    if (repaired > 0) {
+      Logger.info("Repaired $repaired chat(s) with a missing latest message", tag: "ChatBloc");
+    }
+  }
+
   Future<void> init({bool force = false, bool headless = false}) async {
     this.headless = headless;
     if ((!force && !SettingsSvc.settings.finishedSetup.value) || headless) return;
@@ -382,6 +404,11 @@ class ChatsService {
 
     loadedAllChats.complete();
     Logger.info("Finished fetching chats (${chatStates.length}).", tag: "ChatBloc");
+
+    // TN fork: heal chats whose latest-message pointer is dangling. The tile
+    // reads both its preview and its date from that relation, so such a chat
+    // shows up as a completely blank row.
+    unawaited(repairMissingLatestMessages());
 
     // Calculate initial unread count now that all chat states are populated.
     // The listener only fires on changes, so we need an explicit call here to

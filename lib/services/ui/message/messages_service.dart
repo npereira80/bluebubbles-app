@@ -690,6 +690,13 @@ class MessagesService extends GetxController {
     // TN fork: a chat you've never toggled starts on the route you last used in
     // it, rather than always claiming iMessage.
     unawaited(SmsSendMode.seedFromHistory(c));
+
+    // TN fork: heal a chat whose latest-message pointer was left dangling by an
+    // earlier deletion — its list row shows no preview and no date until this
+    // runs.
+    if (ChatsSvc.getChatState(tag)?.latestMessage.value == null) {
+      unawaited(repairLatestMessage());
+    }
   }
 
   /// Remove messages that the server no longer has.
@@ -741,16 +748,20 @@ class MessagesService extends GetxController {
       Logger.info('[reconcile] ${chat.guid}: removing ${stale.length} message(s) deleted on the server',
           tag: "MessagesService");
 
+      final deletedGuids = <String>{};
       for (final message in stale) {
+        deletedGuids.add(message.guid!);
         await Message.delete(message.guid!);
         removeMessage(message);
         removeFunc(message);
       }
 
-      final newest = struct.messages.isEmpty
-          ? null
-          : (struct.messages.toList()..sort(Message.sort)).firstOrNull;
-      if (newest != null) ChatsSvc.updateChatLatestMessage(chat.guid, newest);
+      // The chat's latest-message pointer may now reference a row that's gone,
+      // which leaves the list tile with no preview and no date at all.
+      final current = ChatsSvc.getChatState(chat.guid)?.latestMessage.value?.guid;
+      if (current == null || deletedGuids.contains(current)) {
+        await repairLatestMessage();
+      }
     } catch (e) {
       // Offline, or the server refused: leave everything alone. Deleting local
       // history because a request failed would be far worse than showing a
@@ -1396,14 +1407,34 @@ class MessagesService extends GetxController {
     if (kIsWeb) return;
     final chatState = ChatsSvc.getChatState(tag);
     if (chatState == null || chatState.latestMessage.value?.guid != deletedGuid) return;
-    final chat = ChatsSvc.findChatByGuid(tag);
-    if (chat == null) return;
+    await repairLatestMessage();
+  }
+
+  /// Point the chat at its newest surviving message.
+  ///
+  /// Deleting the latest message leaves the chat's `dbLatestMessage` relation
+  /// pointing at a row that no longer exists. The conversation tile reads its
+  /// preview *and* its date from that relation, so the row goes completely blank
+  /// — which is how this shows up: a chat with messages in it and nothing in the
+  /// list.
+  ///
+  /// Also runs when a thread opens, so chats already left in that state repair
+  /// themselves instead of needing the message deleted again.
+  Future<void> repairLatestMessage() async {
+    if (kIsWeb) return;
+    final chat = ChatsSvc.findChatByGuid(tag) ?? this.chat;
+    final state = ChatsSvc.getChatState(tag);
+    if (state == null) return;
+
     final latest = Chat.getMessages(chat, limit: 1);
-    if (latest.isNotEmpty) {
-      // The newest message was just deleted, so the surviving latest is older
-      // than the current pointer — allow the downgrade here specifically.
-      ChatsSvc.updateChatLatestMessage(tag, latest.first, allowOlder: true);
-    }
+    if (latest.isEmpty) return;
+
+    final current = state.latestMessage.value;
+    if (current != null && current.guid == latest.first.guid) return;
+
+    // The survivor is older than the pointer we're replacing, which is exactly
+    // the case the forward-only guard exists to reject.
+    ChatsSvc.updateChatLatestMessage(tag, latest.first, allowOlder: true);
   }
 
   /// Toggle bookmark status on a message
