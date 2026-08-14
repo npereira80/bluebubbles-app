@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:async_task/async_task_extension.dart';
 import 'package:bluebubbles/utils/logger/logger.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
@@ -93,7 +95,12 @@ class FullSyncManager extends SyncManager {
         for (final chat in chats) {
           if (kIsWeb || (chat.chatIdentifier ?? "").startsWith("urn:biz")) continue;
           try {
-            await for (final messageEvent in streamChatMessages(chat.guid, messageCount, batchSize: messageCount)) {
+            // Request in batches rather than one page of `messageCount`: keeps
+            // every request well under the server's 1000 ceiling and its 5
+            // minute response timeout, and lets progress move per batch instead
+            // of jumping once per chat.
+            await for (final messageEvent
+                in streamChatMessages(chat.guid, messageCount, batchSize: min(messageCount, 200))) {
               List<Map<String, dynamic>> newMessages = messageEvent.messages;
               String? displayName = chat.guid;
               if (chat.displayName != null && chat.displayName!.isNotEmpty) {

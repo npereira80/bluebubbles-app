@@ -243,7 +243,7 @@ class _NumberOfMessagesSliderState extends CustomState<NumberOfMessagesSlider, i
         Padding(
           padding: const EdgeInsets.all(8.0),
           child: Text(
-            "Number of Messages to Sync Per Chat: $numberOfMessages",
+            "Number of Messages to Sync Per Chat: ${numberOfMessages.toInt()}",
             style: context.theme.textTheme.bodyLarge!
                 .copyWith(color: context.theme.colorScheme.onSurfaceVariant)
                 .copyWith(height: 1.5),
@@ -259,10 +259,14 @@ class _NumberOfMessagesSliderState extends CustomState<NumberOfMessagesSlider, i
               numberOfMessages = value == 0 ? 1 : value;
             });
           },
-          label: numberOfMessages == 0 ? "1" : numberOfMessages.toString(),
-          divisions: 10,
+          label: numberOfMessages == 0 ? "1" : numberOfMessages.toInt().toString(),
+          // 1000 is the server's own limit: it rejects a larger page outright
+          // rather than trimming it. Steps of 25 so the 25 default sits on the
+          // grid. More history costs sync time, not correctness — the request is
+          // split into batches below the ceiling either way.
+          divisions: 40,
           min: 0,
-          max: 50,
+          max: 1000,
         ),
       ],
     );
