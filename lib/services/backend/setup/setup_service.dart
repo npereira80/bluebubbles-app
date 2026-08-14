@@ -1,6 +1,8 @@
 import 'package:bluebubbles/helpers/backend/startup_tasks.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/helpers/network/network_tasks.dart';
+import 'package:get_it/get_it.dart';
+import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/services/services.dart';
 import 'package:get/get.dart';
 
@@ -41,5 +43,17 @@ class SetupService extends GetxService {
     await SettingsSvc.settings.saveOneAsync('finishedSetup');
     await StartupTasks.onStartup();
     await NetworkTasks.onConnect();
+
+    // TN fork: SmsService registers (and gives up early) before setup is
+    // finished, so nothing has imported the phone's own SMS or pulled the backup
+    // yet. Do it now that the chat service is up and inserts have somewhere to
+    // land — otherwise an SMS-only install opens to an empty list.
+    if (!kIsWeb && !kIsDesktop && GetIt.I.isRegistered<SmsService>()) {
+      await SmsSvc.init();
+      // Reset the cursors first: an early pull may have advanced them past
+      // messages whose inserts went nowhere, and those never come back on their
+      // own. Cheap, and content hashes mean no duplicates.
+      await SmsSvc.fullResyncFromServer();
+    }
   }
 }

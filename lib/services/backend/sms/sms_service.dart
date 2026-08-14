@@ -120,11 +120,22 @@ class SmsService {
         await _purgeInjectedSmsMessages();
       }
 
+      await _restorePendingSends();
+      _watchForSendOpportunity();
+
+      // Nothing may import messages until setup is finished. This runs during
+      // service registration, which on a fresh install is *before* the user has
+      // been through setup: the chat service isn't up, so inserts go nowhere —
+      // and the pull cursor would still advance past them, losing that history
+      // for good. init() is called again once setup completes.
+      if (!SettingsSvc.settings.finishedSetup.value) {
+        Logger.info('SmsService: setup unfinished — deferring import until it is');
+        return;
+      }
+
       if (isDefaultSmsApp.value) {
         await backfill();
       }
-      await _restorePendingSends();
-      _watchForSendOpportunity();
       unawaited(flushPendingSends());
       if (serverConfigured) {
         await _ensureServer();
@@ -222,7 +233,17 @@ class SmsService {
 
   Future<void> refreshStatus() async {
     try {
+      final wasDefault = isDefaultSmsApp.value;
       isDefaultSmsApp.value = (await MethodChannelSvc.invokeMethod('sms-is-default')) == true;
+      // Becoming the default SMS app is the moment the phone's existing messages
+      // become readable. Import them right away rather than waiting for whatever
+      // happens to trigger the next sync.
+      if (!wasDefault && isDefaultSmsApp.value && SettingsSvc.settings.finishedSetup.value) {
+        unawaited(Future(() async {
+          await backfill();
+          await backfillMms();
+        }));
+      }
       final sim = ((await MethodChannelSvc.invokeMethod('sms-sim-info')) as Map?)?.cast<String, dynamic>() ?? {};
       simKey.value = sim['simKey'] as String?;
       simNumber.value = sim['number'] as String?;

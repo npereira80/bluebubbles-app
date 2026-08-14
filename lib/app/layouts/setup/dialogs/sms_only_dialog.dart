@@ -74,6 +74,10 @@ class _SmsOnlyDialogState extends State<SmsOnlyDialog> {
           if (_working) ...[
             const SizedBox(height: 20),
             const Center(child: CircularProgressIndicator()),
+            const SizedBox(height: 12),
+            Center(
+              child: Text("Importing your messages…", style: context.theme.textTheme.bodyMedium),
+            ),
           ],
         ],
       ),
