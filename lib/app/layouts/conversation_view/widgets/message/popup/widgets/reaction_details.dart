@@ -110,7 +110,7 @@ class ReactionDetails extends StatelessWidget {
                               : Center(
                                   child: Builder(builder: (context) {
                                     final text = Text(
-                                      ReactionTypes.reactionToEmoji[message.associatedMessageType] ?? "X",
+                                      ReactionTypes.emojiFor(message.associatedMessageType, text: message.text),
                                       style: const TextStyle(fontSize: 18, fontFamily: 'Apple Color Emoji'),
                                       textAlign: TextAlign.center,
                                     );

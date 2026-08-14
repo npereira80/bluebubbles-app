@@ -181,7 +181,7 @@ class ReactionWidgetState extends State<ReactionWidget> with ThemeHelpers {
               child: Center(
                 child: Builder(builder: (context) {
                   final text = Text(
-                    ReactionTypes.reactionToEmoji[reactionType] ?? "X",
+                    ReactionTypes.emojiFor(reactionType, text: reaction.text),
                     style: const TextStyle(fontSize: 15, fontFamily: 'Apple Color Emoji'),
                     textAlign: TextAlign.center,
                   );
@@ -238,16 +238,26 @@ class ReactionWidgetState extends State<ReactionWidget> with ThemeHelpers {
                           child: Padding(
                         padding:
                             const EdgeInsets.all(6.5).add(EdgeInsets.only(right: reactionType == "emphasize" ? 1 : 0)),
-                        child: SvgPicture.asset(
-                          'assets/reactions/$reactionType-black.svg',
-                          colorFilter: ColorFilter.mode(
-                              reactionType == "love"
-                                  ? Colors.pink
-                                  : (reactionIsFromMe
-                                      ? context.theme.colorScheme.onPrimary
-                                      : context.theme.colorScheme.onSurfaceVariant),
-                              BlendMode.srcIn),
-                        ),
+                        // An arbitrary-emoji tapback has no icon to draw, so
+                        // render the emoji itself.
+                        child: ReactionTypes.hasAsset(reactionType)
+                            ? SvgPicture.asset(
+                                'assets/reactions/$reactionType-black.svg',
+                                colorFilter: ColorFilter.mode(
+                                    reactionType == "love"
+                                        ? Colors.pink
+                                        : (reactionIsFromMe
+                                            ? context.theme.colorScheme.onPrimary
+                                            : context.theme.colorScheme.onSurfaceVariant),
+                                    BlendMode.srcIn),
+                              )
+                            : FittedBox(
+                                child: Text(
+                                  ReactionTypes.emojiFor(reactionType, text: reaction.text),
+                                  style: const TextStyle(fontFamily: 'Apple Color Emoji'),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
                       )),
                     ));
               })),
@@ -341,7 +351,7 @@ class ReactionWidgetState extends State<ReactionWidget> with ThemeHelpers {
         child: Center(
           child: Builder(builder: (ctx) {
             final text = Text(
-              ReactionTypes.reactionToEmoji[rType] ?? "X",
+              ReactionTypes.emojiFor(rType, text: reaction.text),
               style: const TextStyle(fontSize: 15, fontFamily: 'Apple Color Emoji'),
               textAlign: TextAlign.center,
             );
@@ -407,17 +417,25 @@ class ReactionWidgetState extends State<ReactionWidget> with ThemeHelpers {
                 child: Center(
                   child: Padding(
                     padding: const EdgeInsets.all(6.5).add(EdgeInsets.only(right: rType == "emphasize" ? 1 : 0)),
-                    child: SvgPicture.asset(
-                      'assets/reactions/$rType-black.svg',
-                      colorFilter: ColorFilter.mode(
-                        rType == "love"
-                            ? Colors.pink
-                            : (isFromMe
-                                ? context.theme.colorScheme.onPrimary
-                                : context.theme.colorScheme.onSurfaceVariant),
-                        BlendMode.srcIn,
-                      ),
-                    ),
+                    child: ReactionTypes.hasAsset(rType)
+                        ? SvgPicture.asset(
+                            'assets/reactions/$rType-black.svg',
+                            colorFilter: ColorFilter.mode(
+                              rType == "love"
+                                  ? Colors.pink
+                                  : (isFromMe
+                                      ? context.theme.colorScheme.onPrimary
+                                      : context.theme.colorScheme.onSurfaceVariant),
+                              BlendMode.srcIn,
+                            ),
+                          )
+                        : FittedBox(
+                            child: Text(
+                              ReactionTypes.emojiFor(rType, text: reaction.text),
+                              style: const TextStyle(fontFamily: 'Apple Color Emoji'),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
                   ),
                 ),
               ),

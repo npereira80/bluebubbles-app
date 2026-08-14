@@ -189,7 +189,11 @@ class Message {
       associatedMessageGuid: json["associatedMessageGuid"]?.toString().replaceAll("bp:", "").split("/").last,
       associatedMessagePart: json["associatedMessagePart"] ??
           int.tryParse(json["associatedMessageGuid"].toString().replaceAll("p:", "").split("/").first),
-      associatedMessageType: json["associatedMessageType"],
+      // TN fork: the server passes unknown reaction IDs through as raw
+      // numbers, so normalise here — one place, before anything stores or
+      // renders it.
+      associatedMessageType:
+          ReactionTypes.normalize(json["associatedMessageType"]?.toString()) ?? json["associatedMessageType"],
       expressiveSendStyleId: json["expressiveSendStyleId"],
       handle: json['handle'] != null ? Handle.fromMap(json['handle']) : null,
       hasAttachments: attachments.isNotEmpty || json['hasAttachments'] == true,
