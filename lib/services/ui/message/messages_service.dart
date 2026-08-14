@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:bluebubbles/app/state/attachment_state.dart';
 import 'package:bluebubbles/app/state/message_state.dart';
 import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
+import 'package:bluebubbles/services/backend/sms/sms_send_mode.dart';
 import 'package:bluebubbles/services/backend/sms/imessage_mode.dart';
 import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:get_it/get_it.dart';
@@ -685,6 +686,10 @@ class MessagesService extends GetxController {
     // after a cursor, so a message deleted on the Mac stays here forever. Opening
     // the thread is the natural moment to notice.
     unawaited(reconcileDeletionsWithServer());
+
+    // TN fork: a chat you've never toggled starts on the route you last used in
+    // it, rather than always claiming iMessage.
+    unawaited(SmsSendMode.seedFromHistory(c));
   }
 
   /// Remove messages that the server no longer has.

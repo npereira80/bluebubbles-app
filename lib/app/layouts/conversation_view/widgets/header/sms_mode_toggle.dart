@@ -22,7 +22,7 @@ class SmsModeToggle extends StatelessWidget {
 
     return Obx(() {
       // Watch the reactive set so the pill flips instantly on toggle.
-      final sms = SmsSendMode.reactive.contains(chat.guid);
+      final sms = SmsSendMode.reactive[chat.guid] ?? false;
       final active = sms ? green : blue;
 
       return GestureDetector(

@@ -5,6 +5,7 @@ import 'package:bluebubbles/database/models.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/services/backend/interfaces/send_message_interface.dart';
 import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
+import 'package:bluebubbles/services/backend/sms/sms_send_mode.dart';
 import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/services/isolates/global_isolate.dart';
 import 'package:bluebubbles/services/services.dart';
@@ -783,12 +784,16 @@ class OutgoingMessageHandler {
               reaction: r,
               partIndex: m.associatedMessagePart,
             ),
-      onSuccess: (data) => _finalizeOutgoingSuccess(
-        c, tempGuid, data,
-        // Reactions live in the parent's associatedMessages list, not as
-        // top-level MessagesService entries.  Once the GUID is confirmed,
-        // explicitly update the parent so the badge reflects the real reaction.
-        onExtra: r != null
+      onSuccess: (data) {
+        // Sent over iMessage: remember that too, so a one-off SMS doesn't leave
+        // the pill green forever.
+        if (r == null) unawaited(SmsSendMode.remember(c.guid, sms: false));
+        return _finalizeOutgoingSuccess(
+          c, tempGuid, data,
+          // Reactions live in the parent's associatedMessages list, not as
+          // top-level MessagesService entries.  Once the GUID is confirmed,
+          // explicitly update the parent so the badge reflects the real reaction.
+          onExtra: r != null
             ? (confirmed) async {
                 if (confirmed.associatedMessageGuid != null) {
                   final parentState =
@@ -804,9 +809,10 @@ class OutgoingMessageHandler {
                 }
               }
             : null,
-      ),
+          );
+      },
       onError: (error, stack) async {
-        // TN fork: iMessage couldn't be reached, but this contact is also on
+          // TN fork: iMessage couldn't be reached, but this contact is also on
         // SMS — deliver over the SIM instead of failing. Only on a real
         // unreachable-server error, so a brief socket blip never silently
         // turns an iMessage into a billable SMS.
@@ -877,6 +883,9 @@ class OutgoingMessageHandler {
       // in the thread the user is looking at rather than moving it.
       m.guid = SmsService.smsGuid(isFromMe: true, address: address, body: body, dateMs: ts);
       m.error = 0;
+      // Fell back automatically, but from the user's side the last message here
+      // was an SMS — so the pill should say so.
+      unawaited(SmsSendMode.remember(c.guid, sms: true));
       await _matchMessageWithExisting(c, tempGuid, m);
       return true;
     } catch (e, s) {
@@ -914,6 +923,9 @@ class OutgoingMessageHandler {
         await SmsSvc.sendTextViaServer(address, body);
       }
       m.guid = SmsService.smsGuid(isFromMe: true, address: address, body: body, dateMs: ts);
+      // The header pill should reflect what actually happened, so the next reply
+      // starts from the route that worked.
+      unawaited(SmsSendMode.remember(c.guid, sms: true));
       await _matchMessageWithExisting(c, tempGuid, m);
     } catch (e, s) {
       // Nothing could carry it right now. Rather than showing a failure the user
