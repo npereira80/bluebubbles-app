@@ -62,10 +62,15 @@ class SetupView extends StatefulWidget {
 }
 
 class _SetupViewState extends State<SetupView> {
-  late final controller = Get.put(SetupViewController(startPage: widget.startPage), permanent: true);
+  /// Registered here rather than in a `late final` field initialiser: seven other
+  /// widgets resolve this with Get.find in their own field initialisers, and a
+  /// lazy field isn't created until something touches it — so the first of those
+  /// to build threw "SetupViewController not found".
+  late final SetupViewController controller;
 
   @override
   void initState() {
+    controller = Get.put(SetupViewController(startPage: widget.startPage), permanent: true);
     super.initState();
 
     ever(SocketSvc.state, (event) {
