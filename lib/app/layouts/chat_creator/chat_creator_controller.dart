@@ -37,6 +37,10 @@ class ChatCreatorController extends StatefulController {
   final RxList<ContactV2> filteredContacts = <ContactV2>[].obs;
   final Rxn<ConversationViewController> activeController = Rxn(null);
   final Rx<ChatServiceType> selectedService = ChatServiceType.iMessage.obs;
+
+  /// Whether [selectedService] came from the user tapping a tab rather than from
+  /// looking at the recipient. A deliberate choice outranks detection.
+  bool _serviceChosenByUser = false;
   final RxBool isHeaderVisible = true.obs;
 
   // ---- Text / Focus ----
@@ -282,6 +286,8 @@ class ChatCreatorController extends StatefulController {
     filteredChats.value = result.chats;
     filteredContacts.value = result.contacts;
     if (selectedContacts.isEmpty) {
+      // Back to an empty compose — let detection take over again.
+      _serviceChosenByUser = false;
       await deactivateExistingChat();
     } else {
       await findExistingChat();
@@ -294,6 +300,7 @@ class ChatCreatorController extends StatefulController {
 
   Future<void> onServiceChanged(ChatServiceType service) async {
     if (selectedService.value == service) return;
+    _serviceChosenByUser = true;
     selectedService.value = service;
     selectedContacts.clear();
     addressController.text = '';
@@ -313,12 +320,19 @@ class ChatCreatorController extends StatefulController {
       return null;
     }
 
-    // Auto-update service type based on selected contact iMessage status
+    // Auto-update service type based on selected contact iMessage status.
+    //
+    // TN fork: unless the user picked a tab themselves. Picking SMS, then a
+    // contact who also has iMessage, used to snap straight back to iMessage —
+    // so you had to reselect the tab, which closed the keyboard, before typing.
     final hasSmsContact = selectedContacts.firstWhereOrNull((c) => c.serviceType.value == ChatServiceType.sms) != null;
-    if (hasSmsContact) {
+    if (!_serviceChosenByUser) {
+      selectedService.value = hasSmsContact ? ChatServiceType.sms : ChatServiceType.iMessage;
+    } else if (selectedService.value == ChatServiceType.iMessage && hasSmsContact) {
+      // The one case worth overriding: they asked for iMessage and this contact
+      // can't receive it. SMS always works for a phone number, so a deliberate
+      // SMS choice is never overridden.
       selectedService.value = ChatServiceType.sms;
-    } else {
-      selectedService.value = ChatServiceType.iMessage;
     }
     filteredChats.value = _allChats.where(_chatMatchesService).toList();
 
