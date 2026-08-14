@@ -94,6 +94,9 @@ class FullSyncManager extends SyncManager {
         // We will stream the messages by page
         for (final chat in chats) {
           if (kIsWeb || (chat.chatIdentifier ?? "").startsWith("urn:biz")) continue;
+          // Set when the chat is dropped mid-stream (no participants, or empty
+          // and the user chose to skip those) so it isn't also counted as synced.
+          bool chatDropped = false;
           try {
             // Request in batches rather than one page of `messageCount`: keeps
             // every request well under the server's 1000 ceiling and its 5
@@ -121,12 +124,14 @@ class FullSyncManager extends SyncManager {
                 addToOutput('Deleting chat: $displayName (no participants were found)');
                 ChatsSvc.softDeleteChat(chat);
                 deletedChats++;
+                chatDropped = true;
                 continue;
               }
               if (newMessages.isEmpty && skipEmptyChats) {
                 addToOutput('Deleting chat: $displayName (skip empty chats was selected)');
                 ChatsSvc.softDeleteChat(chat);
                 deletedChats++;
+                chatDropped = true;
                 continue;
               }
 
@@ -139,12 +144,21 @@ class FullSyncManager extends SyncManager {
               ).then((r) => r.messages);
               messagesSynced += insertedMessages.length;
 
+              // If we're supposed to be stopping, break out
+              if (status.value == SyncStatus.STOPPING) break;
+            }
+
+            // Progress is counted per chat, not per page of messages. These used
+            // to sit inside the loop above, which was harmless only while each
+            // chat was fetched in a single page — once the fetch was split into
+            // batches, one chat counted as several and the bar ran to 100% long
+            // before the sync was done.
+            if (!chatDropped) {
               // Fetch group chat icon if available.
               if (syncGroupChatIcons && chat.isGroup) {
                 await Chat.getIcon(chat).catchError((_) {});
               }
 
-              // Increment how many chats we've synced, then set the progress
               completedChats += 1;
               int adjustedTotal = (totalChats ?? newChats.length) - filteredChatsCount - deletedChats;
               setProgress(completedChats, adjustedTotal);
@@ -152,8 +166,6 @@ class FullSyncManager extends SyncManager {
               if (kIsDesktop && Platform.isWindows) {
                 await WindowsTaskbar.setProgress(completedChats, adjustedTotal);
               }
-              // If we're supposed to be stopping, break out
-              if (status.value == SyncStatus.STOPPING) break;
             }
           } catch (ex, stack) {
             addToOutput('Failed to sync chat messages! Error: ${ex.toString()}', level: LogLevel.ERROR);
