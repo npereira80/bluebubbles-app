@@ -54,9 +54,13 @@ class SyncService {
 
   Future<void> startIncrementalSync({bool useGlobalIsolate = false}) async {
     if (isIncrementalSyncing.value) return;
-    // TN fork: nothing to sync while the iMessage half is switched off. The
-    // cursor is left untouched, so re-enabling resumes instead of re-downloading.
-    if (!IMessageMode.enabled) return;
+
+    // TN fork: with the iMessage half switched off there is nothing to sync from
+    // the server, and the cursor is left untouched so re-enabling resumes rather
+    // than re-downloading. The contact pass below still runs: it reads the
+    // phone's own contacts and is what gives every chat its name and avatar,
+    // including in SMS-only mode.
+    final syncFromServer = IMessageMode.enabled;
 
     final now = DateTime.now();
     if (_lastIncrementalSyncTimestamp != null &&
@@ -115,57 +119,63 @@ class SyncService {
     }
 
     final syncIsolate = GetIt.I<IncrementalSyncIsolate>();
-    syncIsolate.addEventListener(IsolateEvent.incrementalSyncPageComplete, onPageComplete);
+    if (syncFromServer) {
+      syncIsolate.addEventListener(IsolateEvent.incrementalSyncPageComplete, onPageComplete);
+    }
 
     try {
-      Logger.info('Starting incremental chat sync...', tag: 'Incremental Chat Sync');
-      final chatStopwatch = Stopwatch()..start();
-      final syncedMessages = await SyncInterface.performIncrementalSync(useGlobalIsolate: useGlobalIsolate);
-      if (syncedMessages.isNotEmpty) {
-        // latestMessageIdPerChat is keyed by chat GUID, so syncedMessages already contains
-        // at most one message per chat. Deduplicate defensively by keeping the latest
-        // message per chat GUID in case the data ever changes.
-        final Map<String, Message> latestPerChat = {};
-        for (final message in syncedMessages) {
-          final chatGuid = message.chat.target?.guid;
-          if (chatGuid == null) continue;
-          final existing = latestPerChat[chatGuid];
-          if (existing == null ||
-              (message.dateCreated != null &&
-                  (existing.dateCreated == null || message.dateCreated!.isAfter(existing.dateCreated!)))) {
-            latestPerChat[chatGuid] = message;
+      // Server-side sync. Skipped entirely in SMS-only mode; the contact
+      // pass after this block still runs.
+      if (syncFromServer) {
+        Logger.info('Starting incremental chat sync...', tag: 'Incremental Chat Sync');
+        final chatStopwatch = Stopwatch()..start();
+        final syncedMessages = await SyncInterface.performIncrementalSync(useGlobalIsolate: useGlobalIsolate);
+        if (syncedMessages.isNotEmpty) {
+          // latestMessageIdPerChat is keyed by chat GUID, so syncedMessages already contains
+          // at most one message per chat. Deduplicate defensively by keeping the latest
+          // message per chat GUID in case the data ever changes.
+          final Map<String, Message> latestPerChat = {};
+          for (final message in syncedMessages) {
+            final chatGuid = message.chat.target?.guid;
+            if (chatGuid == null) continue;
+            final existing = latestPerChat[chatGuid];
+            if (existing == null ||
+                (message.dateCreated != null &&
+                    (existing.dateCreated == null || message.dateCreated!.isAfter(existing.dateCreated!)))) {
+              latestPerChat[chatGuid] = message;
+            }
+          }
+
+          // IncrementalSyncManager.complete() already called ChatsSvc.updateChat() for every
+          // synced chat. Here we only need to push the subtitle update into ChatState.
+          // Skip chats where the per-page event already applied the same (or newer) message.
+          for (final entry in latestPerChat.entries) {
+            final message = entry.value;
+            if (message.id != null && processedSubtitleByChat[entry.key] == message.id) continue;
+            ChatsSvc.updateChatLatestMessage(entry.key, message);
+          }
+
+          // Dispatch newly synced messages to any currently active chat view.
+          // Skip messages already dispatched by a per-page event.
+          // MessagesService.addNewMessage() is a no-op if the message is already present,
+          // so this is safe even without the skip, but avoiding the call reduces churn.
+          for (final message in syncedMessages) {
+            if (message.id != null && processedMessageIds.contains(message.id)) continue;
+            final chatGuid = message.chat.target?.guid;
+            if (chatGuid == null || message.guid == null) continue;
+            if (Get.isRegistered<MessagesService>(tag: chatGuid)) {
+              unawaited(Get.find<MessagesService>(tag: chatGuid).addNewMessage(message));
+            }
           }
         }
 
-        // IncrementalSyncManager.complete() already called ChatsSvc.updateChat() for every
-        // synced chat. Here we only need to push the subtitle update into ChatState.
-        // Skip chats where the per-page event already applied the same (or newer) message.
-        for (final entry in latestPerChat.entries) {
-          final message = entry.value;
-          if (message.id != null && processedSubtitleByChat[entry.key] == message.id) continue;
-          ChatsSvc.updateChatLatestMessage(entry.key, message);
-        }
-
-        // Dispatch newly synced messages to any currently active chat view.
-        // Skip messages already dispatched by a per-page event.
-        // MessagesService.addNewMessage() is a no-op if the message is already present,
-        // so this is safe even without the skip, but avoiding the call reduces churn.
-        for (final message in syncedMessages) {
-          if (message.id != null && processedMessageIds.contains(message.id)) continue;
-          final chatGuid = message.chat.target?.guid;
-          if (chatGuid == null || message.guid == null) continue;
-          if (Get.isRegistered<MessagesService>(tag: chatGuid)) {
-            unawaited(Get.find<MessagesService>(tag: chatGuid).addNewMessage(message));
-          }
-        }
+        chatStopwatch.stop();
+        Logger.info(
+            'Incremental chat sync completed! Synced ${syncedMessages.length} messages across '
+            '${syncedMessages.map((m) => m.chat.target?.guid).toSet().length} chats '
+            'in ${chatStopwatch.elapsedMilliseconds}ms',
+            tag: 'Incremental Chat Sync');
       }
-
-      chatStopwatch.stop();
-      Logger.info(
-          'Incremental chat sync completed! Synced ${syncedMessages.length} messages across '
-          '${syncedMessages.map((m) => m.chat.target?.guid).toSet().length} chats '
-          'in ${chatStopwatch.elapsedMilliseconds}ms',
-          tag: 'Incremental Chat Sync');
     } catch (e, stack) {
       if (isServerUnreachable(e)) {
         unreachable = true;
@@ -178,14 +188,17 @@ class SyncService {
       syncIsolate.removeEventListener(IsolateEvent.incrementalSyncPageComplete, onPageComplete);
     }
 
-    // No point asking the server for contacts when we've just established it
-    // isn't answering; those calls would only fail and inflate the error count.
-    if (!unreachable) {
-      final contactSyncResult = await performContactSyncToHandles();
-      if (!contactSyncResult) {
-        errors += 1;
-      }
+    // Matching the phone's contacts to handles is local work and the only thing
+    // that gives a chat a name and a photo, so it runs regardless of whether the
+    // server was reachable — or configured at all.
+    final contactSyncResult = await performContactSyncToHandles();
+    if (!contactSyncResult) {
+      errors += 1;
+    }
 
+    // Uploading them is the server's business: pointless when it isn't answering,
+    // and meaningless when there's no server.
+    if (syncFromServer && !unreachable) {
       final contactUploadResult = await performContactSyncToServer();
       if (!contactUploadResult) {
         errors += 1;
