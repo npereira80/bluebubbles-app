@@ -1,6 +1,7 @@
 import 'package:bluebubbles/app/layouts/settings/widgets/settings_widgets.dart';
 import 'package:bluebubbles/app/wrappers/theme_switcher.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
+import 'package:bluebubbles/services/backend/sms/sms_account.dart';
 import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +17,7 @@ class SmsAgentPanel extends StatefulWidget {
 }
 
 class _SmsAgentPanelState extends State<SmsAgentPanel> with ThemeHelpers {
+  bool _signingIn = false;
   late final TextEditingController _url = TextEditingController(text: SmsSvc.serverUrl);
   late final TextEditingController _secret = TextEditingController(text: SmsSvc.serverSecret);
 
@@ -53,6 +55,80 @@ class _SmsAgentPanelState extends State<SmsAgentPanel> with ThemeHelpers {
       case SmsSyncState.idle:
         return "Idle";
     }
+  }
+
+  /// Ask for an email, then prove the SIM by texting this phone its own code.
+  Future<void> _signInFlow() async {
+    if (SmsAccount.signedIn) {
+      final out = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: context.theme.colorScheme.surfaceContainerHighest,
+          title: Text("Signed in as ${SmsAccount.email.value}", style: context.theme.textTheme.titleLarge),
+          content: Text(
+            "Signing out stops this phone syncing to your account. Messages already "
+            "on the phone stay where they are.",
+            style: context.theme.textTheme.bodyLarge,
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text("Cancel")),
+            TextButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text("Sign out")),
+          ],
+        ),
+      );
+      if (out == true) await SmsAccount.signOut();
+      return;
+    }
+
+    final controller = TextEditingController();
+    final email = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.theme.colorScheme.surfaceContainerHighest,
+        title: Text("Sign in", style: context.theme.textTheme.titleLarge),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Your email identifies your account on the family server. "
+              "This phone will text itself a code to confirm the SIM.",
+              style: context.theme.textTheme.bodyLarge,
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(hintText: "you@example.com"),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text("Continue"),
+          ),
+        ],
+      ),
+    );
+    if (email == null || email.isEmpty || !mounted) return;
+
+    setState(() => _signingIn = true);
+    final error = await SmsAccount.signIn(
+      email_: email,
+      serverUrl: SmsSvc.serverUrl,
+      secret: SmsSvc.serverSecret,
+    );
+    if (mounted) setState(() => _signingIn = false);
+
+    if (error != null) {
+      showSnackbar('Sign in', error);
+      return;
+    }
+    showSnackbar('Signed in', 'Syncing as $email');
+    await SmsSvc.syncNow();
   }
 
   @override
@@ -101,6 +177,29 @@ class _SmsAgentPanelState extends State<SmsAgentPanel> with ThemeHelpers {
                       iosIcon: CupertinoIcons.dot_radiowaves_left_right,
                       materialIcon: Icons.dns_outlined,
                       containerColor: color,
+                    ),
+                  );
+                }),
+                const SettingsDivider(),
+                // The server keeps a separate database per family member, so
+                // nothing syncs until this install says who it belongs to.
+                Obx(() {
+                  final account = SmsAccount.email.value;
+                  return SettingsTile(
+                    backgroundColor: tileColor,
+                    title: account == null ? "Sign in" : "Signed in",
+                    subtitle: account ??
+                        "Your messages sync to your own account on the server. "
+                            "Verified by a text this phone sends to itself.",
+                    isThreeLine: account == null,
+                    onTap: _signingIn ? null : _signInFlow,
+                    // The wait here is real: it sends a text and waits for it to
+                    // come back, so say so rather than looking frozen.
+                    trailing: _signingIn ? _spinner : null,
+                    leading: SettingsLeadingIcon(
+                      iosIcon: CupertinoIcons.person_crop_circle,
+                      materialIcon: Icons.account_circle_outlined,
+                      containerColor: account == null ? Colors.orange : Colors.green,
                     ),
                   );
                 }),

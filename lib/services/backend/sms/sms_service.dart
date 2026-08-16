@@ -10,6 +10,7 @@ import 'package:bluebubbles/database/database.dart';
 import 'package:bluebubbles/database/models.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/services/backend/incoming_message_handler.dart';
+import 'package:bluebubbles/services/backend/sms/sms_account.dart';
 import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
 import 'package:bluebubbles/services/backend/watch/garmin_snapshot.dart';
 import 'package:bluebubbles/services/backend/watch/watch_provisioner.dart';
@@ -106,6 +107,7 @@ class SmsService {
     if (kIsWeb || kIsDesktop) return;
     try {
       await _loadConfig();
+      await SmsAccount.load();
       await SmsSendMode.load();
       await refreshStatus();
       Logger.info('SmsService: default=${isDefaultSmsApp.value}, serverConfigured=$serverConfigured');
@@ -363,6 +365,9 @@ class SmsService {
   // ---- native -> dart (from method channel) ----
 
   Future<void> onSmsReceived(Map<String, dynamic> map) async {
+    // A sign-in in progress texts this phone its own code. Swallow that one
+    // rather than filing it as a message from yourself.
+    if (SmsAccount.offerIncoming((map['body'] as String?) ?? '')) return;
     await _insert(map, live: true);
     unawaited(syncToServer());
   }
@@ -983,20 +988,21 @@ class SmsService {
 
   Future<bool> _ensureServer() async {
     if (!serverConfigured) return false;
-    final prefs = await _sp;
-    _server ??= SmsServerClient(baseUrl: serverUrl, secret: serverSecret, token: prefs.getString(_kServerToken));
-    if (_server!.token == null) {
-      try {
-        final token = await _server!.register('BlueBubbles Android SMS');
-        if (token != null) await prefs.setString(_kServerToken, token);
-      } catch (e) {
-        Logger.warn('SMS server register deferred: $e');
-        serverRegistered.value = false;
-        return false;
-      }
+
+    // The server keeps a database per family member, so a request is only
+    // meaningful once we know whose it is. Anonymous device registration is gone:
+    // without a signed-in account there is nothing to sync to.
+    final token = SmsAccount.token;
+    if (token == null || token.isEmpty) {
+      serverRegistered.value = false;
+      return false;
     }
-    serverRegistered.value = _server!.token != null;
-    return serverRegistered.value;
+
+    if (_server == null || _server!.token != token) {
+      _server = SmsServerClient(baseUrl: serverUrl, secret: serverSecret, token: token);
+    }
+    serverRegistered.value = true;
+    return true;
   }
 
   Future<void> _heartbeat() async {

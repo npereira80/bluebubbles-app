@@ -53,15 +53,54 @@ class SmsServerClient {
     }
   }
 
-  /// Register this device and capture the bearer token. Returns the token.
-  Future<String?> register(String label) async {
-    final res = await _dio.post('/devices/register', data: {
+  /// Begin sign-in for [email] / [phone].
+  ///
+  /// Returns the challenge id and the code to verify with. The code comes back
+  /// to us because the server has no SIM: the phone texts it to its own number
+  /// and reads it back, which is what proves the SIM is in this phone and that
+  /// [phone] is the number its conversations will be keyed by.
+  Future<({String challengeId, String code})?> startSignIn({
+    required String email,
+    required String phone,
+  }) async {
+    final res = await _dio.post('/auth/start', data: {
       'secret': secret,
+      'email': email,
+      'phone': phone,
+    });
+    final data = res.data;
+    if (data is! Map) return null;
+    final id = data['challengeId'] as String?;
+    final code = data['code'] as String?;
+    if (id == null || code == null) return null;
+    return (challengeId: id, code: code);
+  }
+
+  /// Complete sign-in, registering this device against the account.
+  Future<({String token, String userId, String email})?> verifySignIn({
+    required String challengeId,
+    required String code,
+    required String label,
+  }) async {
+    final res = await _dio.post('/auth/verify', data: {
+      'challengeId': challengeId,
+      'code': code,
       'label': label,
       'platform': 'android',
     });
-    token = (res.data as Map)['token'] as String?;
-    return token;
+    final data = res.data;
+    if (data is! Map) return null;
+    final t = data['token'] as String?;
+    if (t == null) return null;
+    token = t;
+    return (token: t, userId: (data['userId'] as String?) ?? '', email: (data['email'] as String?) ?? '');
+  }
+
+  /// The account this token belongs to, for showing who's signed in.
+  Future<Map<String, dynamic>?> me() async {
+    if (token == null) return null;
+    final res = await _dio.get('/auth/me', options: _authed);
+    return (res.data as Map?)?.cast<String, dynamic>();
   }
 
   /// Batch upsert messages. Each map: {direction, address, body, ts, type, providerId?}.
