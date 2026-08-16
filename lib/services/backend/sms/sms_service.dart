@@ -364,6 +364,17 @@ class SmsService {
 
   // ---- native -> dart (from method channel) ----
 
+  /// Surface a sign-in code sent to this account for another device.
+  void _showSignInCode(String? code) {
+    if (code == null || code.isEmpty) return;
+    Logger.info('SmsService: sign-in code requested for another device');
+    showSnackbar(
+      'Sign-in code',
+      '$code — enter this on the device you are signing in.',
+      durationMs: 30000,
+    );
+  }
+
   Future<void> onSmsReceived(Map<String, dynamic> map) async {
     // A sign-in in progress texts this phone its own code. Swallow that one
     // rather than filing it as a message from yourself.
@@ -805,6 +816,11 @@ class SmsService {
           break;
         case 'send':
           await _handleStreamSend(data);
+          break;
+        case 'signin_code':
+          // Another device on this account (the Mac, which has no SIM) is
+          // signing in. Show the code so it can be typed there.
+          _showSignInCode(data['code'] as String?);
           break;
         // welcome / primary_changed / send_status: no action needed here.
       }
