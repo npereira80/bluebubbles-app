@@ -118,8 +118,22 @@ android {
             resValue "string", "app_name_en", "Bubbles"
             // Shared brand blue: same icon background as the watch + Mac apps.
             resValue "color", "ic_launcher_background", "#2563EB"
-            resValue "string", "file_provider", "com.bluebubbles.messaging.fileprovider"
-            applicationId "com.bluebubbles.messaging"
+
+            // Deliberately NOT com.bluebubbles.messaging, so upstream's Play Store
+            // build can sit on the same phone. Android identifies an installed app
+            // by applicationId alone, so sharing it means the two apps are the same
+            // app: whichever is installed second is refused (or, with a different
+            // signing key, refused outright on signature mismatch).
+            //
+            // The Kotlin package and `namespace` above stay com.bluebubbles.messaging
+            // — that's the source package and R class, is never visible to the
+            // system, and keeping it avoids rewriting every import in the fork.
+            //
+            // The FileProvider authority has to move with it: authorities are
+            // globally unique across the device, and a collision fails the install
+            // with INSTALL_FAILED_CONFLICTING_PROVIDER.
+            resValue "string", "file_provider", "com.ikuteam.bubbles.fileprovider"
+            applicationId "com.ikuteam.bubbles"
         }
     }
 
