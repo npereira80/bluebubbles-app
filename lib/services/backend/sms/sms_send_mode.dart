@@ -8,19 +8,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// TN fork — per-conversation "send as SMS" (green) vs iMessage (blue), shown as
 /// the pill in the header and the colour of the send arrow.
 ///
-/// The stored value is the route last *used* in that chat, not only what the user
-/// last tapped. Sending records the route it actually went out on, including when
-/// the SMS fallback took over because iMessage was unreachable — so the pill
-/// always reflects what would happen if you hit send again, which is the only
-/// thing it's useful for.
+/// The stored value is the route the user last *chose* in that chat, plus a
+/// successful iMessage send, which confirms the same thing.
 ///
-/// Chats with no stored value fall back to the route of the last outgoing message
-/// in the thread, so existing conversations start out right rather than all
-/// claiming iMessage.
+/// Pointedly not recorded: an automatic fallback to SMS. It briefly was, and the
+/// result was that one moment of the server being unreachable switched a thread
+/// to SMS permanently — every later reply went out green and iMessage looked
+/// broken.
+///
+/// Chats with no stored value are seeded from the last message sent in the
+/// thread, so existing conversations start out right rather than all claiming
+/// iMessage.
 class SmsSendMode {
   /// Legacy storage: a plain list of chat GUIDs in SMS mode. Migrated on load.
   static const String _legacyKey = 'tn_sms_send_mode_guids';
-  static const String _key = 'tn_sms_send_mode';
+  /// v2 because the first version recorded automatic SMS fallbacks as if they
+  /// were the user's choice, which left dual chats stuck on SMS. Dropping the old
+  /// values lets them be reseeded under the corrected rule below.
+  static const String _key = 'tn_sms_send_mode_v2';
 
   /// guid -> true when SMS. Absent means "not decided yet", which is different
   /// from "iMessage": only the former consults the thread's history.
@@ -65,11 +70,8 @@ class SmsSendMode {
     await _save();
   }
 
-  /// Record the route a message actually went out on.
-  ///
-  /// Called after every send, so an automatic fallback to SMS is remembered the
-  /// same as a deliberate tap — from the user's side both mean "the last message
-  /// here was an SMS".
+  /// Record a route the user effectively chose: a tap on the pill, or a
+  /// successful iMessage send. Never an automatic fallback.
   static Future<void> remember(String guid, {required bool sms}) async {
     if (_modes[guid] == sms) return;
     _modes[guid] = sms;
@@ -85,12 +87,20 @@ class SmsSendMode {
 
     Message? lastSent;
     for (final candidate in ChatMerge.chatsForContact(chat)) {
+      final candidateIsSms = ChatMerge.isOurSms(candidate);
       try {
         final messages = Chat.getMessages(candidate, limit: 25);
         for (final message in messages) {
           if (!(message.isFromMe ?? false)) continue;
           final date = message.dateCreated;
           if (date == null) continue;
+
+          // An SMS sitting inside the iMessage chat was put there by the
+          // automatic fallback, not by a choice — the toggle routes a deliberate
+          // SMS into the paired SMS chat instead. Counting those made one
+          // unreachable moment look like a preference.
+          if (!candidateIsSms && (message.guid?.startsWith('sms-') ?? false)) continue;
+
           if (lastSent?.dateCreated == null || date.isAfter(lastSent!.dateCreated!)) {
             lastSent = message;
           }
@@ -101,8 +111,7 @@ class SmsSendMode {
     }
     if (lastSent == null) return;
 
-    final wasSms = (lastSent.guid?.startsWith('sms-') ?? false) ||
-        (lastSent.chat.target != null && ChatMerge.isOurSms(lastSent.chat.target!));
+    final wasSms = lastSent.chat.target != null && ChatMerge.isOurSms(lastSent.chat.target!);
     _modes[chat.guid] = wasSms;
     await _save();
   }

@@ -883,9 +883,10 @@ class OutgoingMessageHandler {
       // in the thread the user is looking at rather than moving it.
       m.guid = SmsService.smsGuid(isFromMe: true, address: address, body: body, dateMs: ts);
       m.error = 0;
-      // Fell back automatically, but from the user's side the last message here
-      // was an SMS — so the pill should say so.
-      unawaited(SmsSendMode.remember(c.guid, sms: true));
+      // Deliberately does NOT change this chat's default route. One unreachable
+      // moment shouldn't switch a thread to SMS for good — which is exactly what
+      // it did: after a single fallback, every later reply went out as SMS and
+      // iMessage looked broken.
       await _matchMessageWithExisting(c, tempGuid, m);
       return true;
     } catch (e, s) {
@@ -923,9 +924,8 @@ class OutgoingMessageHandler {
         await SmsSvc.sendTextViaServer(address, body);
       }
       m.guid = SmsService.smsGuid(isFromMe: true, address: address, body: body, dateMs: ts);
-      // The header pill should reflect what actually happened, so the next reply
-      // starts from the route that worked.
-      unawaited(SmsSendMode.remember(c.guid, sms: true));
+      // No remembering here either: this runs both for a route the user chose
+      // (already recorded by the toggle) and for one the fallback chose for them.
       await _matchMessageWithExisting(c, tempGuid, m);
     } catch (e, s) {
       // Nothing could carry it right now. Rather than showing a failure the user
