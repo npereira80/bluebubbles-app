@@ -243,14 +243,14 @@ class _SmsAgentPanelState extends State<SmsAgentPanel> with ThemeHelpers {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Always shown, never made conditional on another device having
+            // rendered it. "Delivered" only ever meant a socket was open, which
+            // left this screen waiting on a code nobody had displayed.
             Text(
-              challenge.delivered
-                  ? "A 6-digit code was sent to your other signed-in devices. "
-                      "Check your phone or Mac."
-                  // Nothing was online, so the server handed the code back. No
-                  // weaker than the self-text: the shared secret is what stands
-                  // between a stranger and this screen.
-                  : "No other device was online, so here it is: ${challenge.code ?? '—'}",
+              challenge.code != null
+                  ? "Your code is ${challenge.code}."
+                      "${challenge.delivered ? ' It was also sent to your other signed-in devices.' : ''}"
+                  : "Check your other signed-in devices for a 6-digit code.",
               style: context.theme.textTheme.bodyLarge,
             ),
             const SizedBox(height: 14),
