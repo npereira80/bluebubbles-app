@@ -57,6 +57,55 @@ class _SmsAgentPanelState extends State<SmsAgentPanel> with ThemeHelpers {
     }
   }
 
+  /// Let the number be typed in when the SIM won't report it. Signing in texts
+  /// this phone its own code, so without a number there's no way to join an
+  /// account at all — and plenty of carriers, prepaid especially, never write
+  /// the MSISDN to the SIM.
+  Future<void> _editSimNumber() async {
+    final controller = TextEditingController(
+      text: SmsSvc.simNumberManual.value ?? SmsSvc.simNumber.value ?? '',
+    );
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.theme.colorScheme.surfaceContainerHighest,
+        title: Text("SIM number", style: context.theme.textTheme.titleLarge),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "This phone's own number, in full international form. Used to text "
+              "itself when signing in, and to tell your messages apart from "
+              "everyone else's on the server.",
+              style: context.theme.textTheme.bodyLarge,
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(hintText: "+351912345678"),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text("Cancel")),
+          // Clearing it falls back to whatever the SIM reports, which is the
+          // right answer on a phone where that worked all along.
+          TextButton(onPressed: () => Navigator.of(ctx).pop(''), child: const Text("Use SIM")),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text("Save"),
+          ),
+        ],
+      ),
+    );
+    if (result == null || !mounted) return;
+    await SmsSvc.setSimNumberManual(result.isEmpty ? null : result);
+    if (mounted) setState(() {});
+  }
+
   /// Ask for an email, then prove the SIM by texting this phone its own code.
   Future<void> _signInFlow() async {
     if (SmsAccount.signedIn) {
@@ -248,19 +297,33 @@ class _SmsAgentPanelState extends State<SmsAgentPanel> with ThemeHelpers {
                   );
                 }),
                 const SettingsDivider(),
-                Obx(() => SettingsTile(
-                      backgroundColor: tileColor,
-                      title: "SIM number",
-                      subtitle: SmsSvc.simNumber.value ??
-                          (SmsSvc.simKey.value != null
-                              ? "No number from SIM • ID ${SmsSvc.simKey.value}"
-                              : "Unknown (no SIM / not readable)"),
-                      leading: const SettingsLeadingIcon(
-                        iosIcon: CupertinoIcons.antenna_radiowaves_left_right,
-                        materialIcon: Icons.sim_card_outlined,
-                        containerColor: Colors.teal,
-                      ),
-                    )),
+                Obx(() {
+                  final manual = SmsSvc.simNumberManual.value;
+                  final fromSim = SmsSvc.simNumber.value;
+                  final String subtitle;
+                  if (manual != null && manual.isNotEmpty) {
+                    subtitle = "$manual • entered manually";
+                  } else if (fromSim != null && fromSim.isNotEmpty) {
+                    subtitle = fromSim;
+                  } else if (SmsSvc.simKey.value != null) {
+                    subtitle = "No number from SIM • tap to enter it";
+                  } else {
+                    subtitle = "Unknown (no SIM / not readable) • tap to enter it";
+                  }
+                  return SettingsTile(
+                    backgroundColor: tileColor,
+                    title: "SIM number",
+                    subtitle: subtitle,
+                    // Editable because signing in has to text this phone, and a
+                    // fair number of carriers never write the number to the SIM.
+                    onTap: _editSimNumber,
+                    leading: const SettingsLeadingIcon(
+                      iosIcon: CupertinoIcons.antenna_radiowaves_left_right,
+                      materialIcon: Icons.sim_card_outlined,
+                      containerColor: Colors.teal,
+                    ),
+                  );
+                }),
                 const SettingsDivider(),
                 Obx(() {
                   final syncing = SmsSvc.syncState.value == SmsSyncState.syncing;

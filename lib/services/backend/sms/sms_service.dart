@@ -58,6 +58,37 @@ class SmsService {
   final RxBool serverRegistered = false.obs;
   final RxnString simKey = RxnString();
   final RxnString simNumber = RxnString();
+
+  /// Typed in by hand when the SIM won't say what its own number is.
+  ///
+  /// Plenty of carriers never write the MSISDN to the SIM — prepaid especially —
+  /// so [simNumber] comes back null on a perfectly working phone. Signing in
+  /// needs a number to text, so without somewhere to put it by hand those phones
+  /// simply can't join an account.
+  final RxnString simNumberManual = RxnString();
+  static const String _kSimNumberManual = 'tn_sim_number_manual';
+
+  /// The number to treat as this phone's own. Manual entry wins: it's only ever
+  /// set when the SIM's own answer was missing or wrong.
+  String? get effectiveSimNumber {
+    final manual = simNumberManual.value?.trim();
+    if (manual != null && manual.isNotEmpty) return manual;
+    final fromSim = simNumber.value?.trim();
+    return (fromSim == null || fromSim.isEmpty) ? null : fromSim;
+  }
+
+  Future<void> setSimNumberManual(String? number) async {
+    final trimmed = number?.trim();
+    final prefs = await SharedPreferences.getInstance();
+    if (trimmed == null || trimmed.isEmpty) {
+      await prefs.remove(_kSimNumberManual);
+      simNumberManual.value = null;
+    } else {
+      await prefs.setString(_kSimNumberManual, trimmed);
+      simNumberManual.value = trimmed;
+    }
+  }
+
   final RxBool simPresent = false.obs;   // a SIM is physically present in this device
   final RxBool canSendSms = false.obs;   // SIM present AND radio on (not airplane) → can send natively
   final Rx<SmsSyncState> syncState = SmsSyncState.idle.obs;
@@ -164,6 +195,7 @@ class SmsService {
     final prefs = await _sp;
     serverUrl = prefs.getString(_kServerUrl) ?? _bakedUrl;
     serverSecret = prefs.getString(_kServerSecret) ?? _bakedSecret;
+    simNumberManual.value = prefs.getString(_kSimNumberManual);
   }
 
   void _startTimer() {

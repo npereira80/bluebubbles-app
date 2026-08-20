@@ -79,10 +79,10 @@ class SmsAccount {
     required String serverUrl,
     required String secret,
   }) async {
-    final phone = SmsSvc.simNumber.value;
+    final phone = SmsSvc.effectiveSimNumber;
     if (phone == null || phone.trim().isEmpty) {
-      return "Couldn't read this phone's number from the SIM. "
-          "Some carriers don't store it — enter it in Settings ▸ SMS Agent first.";
+      return "Couldn't read this phone's number from the SIM. Some carriers "
+          "don't store it — tap \"SIM number\" above and enter it.";
     }
     if (!SmsSvc.canSendSms.value) {
       return "No cellular service, so the verification text can't be sent yet.";
