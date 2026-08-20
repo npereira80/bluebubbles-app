@@ -71,6 +71,59 @@ class SmsAccount {
     return true;
   }
 
+  /// Start a sign-in that doesn't need a working SMS path: the server pushes the
+  /// code to the devices already on this account, and it gets typed in here.
+  ///
+  /// For a phone with no SIM, or one whose ROM won't deliver inbound SMS to us.
+  /// The proof is having a signed-in device in hand rather than the SIM.
+  ///
+  /// Returns a record on success. [code] is non-null only when nothing was
+  /// online to receive it, in which case show it rather than locking the person
+  /// out of their own server.
+  static Future<({String challengeId, String? code, bool delivered})?> startRemote({
+    required String email_,
+    required String serverUrl,
+    required String secret,
+  }) async {
+    final client = SmsServerClient(baseUrl: serverUrl, secret: secret);
+    try {
+      return await client.startSignInRemote(email: email_);
+    } catch (e, s) {
+      Logger.error('SmsAccount: remote sign-in start failed: $e', trace: s);
+      return null;
+    }
+  }
+
+  /// Finish a [startRemote] sign-in with the code read off the other device.
+  /// Returns null on success, or a short reason to show the user.
+  static Future<String?> completeRemote({
+    required String email_,
+    required String challengeId,
+    required String code,
+    required String serverUrl,
+    required String secret,
+  }) async {
+    final client = SmsServerClient(baseUrl: serverUrl, secret: secret);
+    try {
+      final result = await client.verifySignIn(
+        challengeId: challengeId,
+        code: code.trim(),
+        label: 'Android',
+      );
+      if (result == null) return "The code didn't match, or it expired. Try again.";
+      await _save(
+        email_: result.email.isEmpty ? email_ : result.email,
+        token_: result.token,
+        userId_: result.userId,
+      );
+      Logger.info('SmsAccount: signed in as ${email.value} (code from another device)');
+      return null;
+    } catch (e, s) {
+      Logger.error('SmsAccount: remote sign-in failed: $e', trace: s);
+      return "Couldn't reach the server. Check the address in Settings ▸ SMS Agent.";
+    }
+  }
+
   /// Sign in as [email], proving the SIM by texting this phone's own number.
   ///
   /// Returns null on success, or a short reason to show the user.

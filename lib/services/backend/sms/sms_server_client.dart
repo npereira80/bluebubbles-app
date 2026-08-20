@@ -76,6 +76,34 @@ class SmsServerClient {
     return (challengeId: id, code: code);
   }
 
+  /// Begin sign-in without a working SMS path, by having the server push the
+  /// code to the devices already on this account.
+  ///
+  /// The self-text proof needs a SIM that can both send and receive. A phone
+  /// with no SIM, or one whose ROM won't hand us inbound SMS, can't do it and
+  /// would otherwise be unable to join an account at all. Holding a device
+  /// that's already signed in is the proof instead.
+  ///
+  /// [code] comes back non-null only when nothing was online to receive it, so
+  /// the person isn't locked out of their own server.
+  Future<({String challengeId, String? code, bool delivered})?> startSignInRemote({
+    required String email,
+  }) async {
+    final res = await _dio.post('/auth/start-remote', data: {
+      'secret': secret,
+      'email': email,
+    });
+    final data = res.data;
+    if (data is! Map) return null;
+    final id = data['challengeId'] as String?;
+    if (id == null) return null;
+    return (
+      challengeId: id,
+      code: data['code'] as String?,
+      delivered: data['delivered'] == true,
+    );
+  }
+
   /// Complete sign-in, registering this device against the account.
   Future<({String token, String userId, String email})?> verifySignIn({
     required String challengeId,

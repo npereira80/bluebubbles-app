@@ -164,9 +164,121 @@ class _SmsAgentPanelState extends State<SmsAgentPanel> with ThemeHelpers {
     );
     if (email == null || email.isEmpty || !mounted) return;
 
+    // No number to text, or no cellular to text it with: the self-text can't
+    // work, so go straight to the other route rather than making the person
+    // wait out a 90-second timeout to be told so.
+    if (SmsSvc.effectiveSimNumber == null || !SmsSvc.canSendSms.value) {
+      await _remoteSignIn(email);
+      return;
+    }
+
     setState(() => _signingIn = true);
     final error = await SmsAccount.signIn(
       email_: email,
+      serverUrl: SmsSvc.serverUrl,
+      secret: SmsSvc.serverSecret,
+    );
+    if (mounted) setState(() => _signingIn = false);
+
+    if (error != null) {
+      // The self-text is the only part that failed. Offer the other route
+      // instead of dead-ending on an error message.
+      if (mounted) await _offerRemoteFallback(email, error);
+      return;
+    }
+    showSnackbar('Signed in', 'Syncing as $email');
+    await SmsSvc.syncNow();
+  }
+
+  /// The self-text didn't work. Explain, and offer the code-from-another-device
+  /// route rather than leaving the person stuck.
+  Future<void> _offerRemoteFallback(String email, String reason) async {
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.theme.colorScheme.surfaceContainerHighest,
+        title: Text("Couldn't verify by text", style: context.theme.textTheme.titleLarge),
+        content: Text(
+          "$reason\n\nIf another device is already signed in to this account, "
+          "the code can be sent there instead.",
+          style: context.theme.textTheme.bodyLarge,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text("Use another device"),
+          ),
+        ],
+      ),
+    );
+    if (go == true && mounted) await _remoteSignIn(email);
+  }
+
+  /// Sign in using a code the server pushes to a device already on the account.
+  Future<void> _remoteSignIn(String email) async {
+    setState(() => _signingIn = true);
+    final challenge = await SmsAccount.startRemote(
+      email_: email,
+      serverUrl: SmsSvc.serverUrl,
+      secret: SmsSvc.serverSecret,
+    );
+    if (mounted) setState(() => _signingIn = false);
+    if (!mounted) return;
+
+    if (challenge == null) {
+      showSnackbar('Sign in',
+          "The server didn't recognise $email. Check the spelling — a new address "
+          "would create a separate account.");
+      return;
+    }
+
+    final controller = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.theme.colorScheme.surfaceContainerHighest,
+        title: Text("Enter the code", style: context.theme.textTheme.titleLarge),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              challenge.delivered
+                  ? "A 6-digit code was sent to your other signed-in devices. "
+                      "Check your phone or Mac."
+                  // Nothing was online, so the server handed the code back. No
+                  // weaker than the self-text: the shared secret is what stands
+                  // between a stranger and this screen.
+                  : "No other device was online, so here it is: ${challenge.code ?? '—'}",
+              style: context.theme.textTheme.bodyLarge,
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              decoration: const InputDecoration(hintText: "000000"),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text("Sign in"),
+          ),
+        ],
+      ),
+    );
+    if (code == null || code.isEmpty || !mounted) return;
+
+    setState(() => _signingIn = true);
+    final error = await SmsAccount.completeRemote(
+      email_: email,
+      challengeId: challenge.challengeId,
+      code: code,
       serverUrl: SmsSvc.serverUrl,
       secret: SmsSvc.serverSecret,
     );
