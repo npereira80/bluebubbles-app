@@ -1,6 +1,9 @@
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/database/models.dart';
 import 'package:dlibphonenumber/dlibphonenumber.dart';
+// Not for `Get.` itself but for the String extensions below (isEmail,
+// numericOnly) — removing this import compiles as an unrelated failure.
+import 'package:get/get.dart';
 
 String formatPhoneNumber(dynamic item) {
   String cc = PhoneRegion.current;
