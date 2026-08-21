@@ -60,7 +60,14 @@ class BaseLogger {
   }
 
   LoggerFactory.LogOutput get defaultOutput {
-    List<LogOutput> outputs = kDebugMode ? [DebugConsoleOutput()] : [];
+    // Console output in profile builds too, not just debug.
+    //
+    // Gating on kDebugMode meant a --profile build logged to the file sink and
+    // nothing else, so `adb logcat` showed no Dart output at all — while native
+    // Kotlin logs kept appearing, which makes it look like the Dart side isn't
+    // running rather than isn't printing. Profile is the build you reach for when
+    // diagnosing on a real device, so it is exactly where this is needed.
+    List<LogOutput> outputs = kReleaseMode ? <LogOutput>[] : <LogOutput>[DebugConsoleOutput()];
     if (!kIsWeb) outputs.add(fileOutput);
     return LoggerFactory.MultiOutput(outputs);
   }

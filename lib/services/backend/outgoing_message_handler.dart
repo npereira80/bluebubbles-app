@@ -912,6 +912,15 @@ class OutgoingMessageHandler {
 
     try {
       final int ts = m.dateCreated?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
+      // Every input to the routing decision, on one line. Which branch an SMS
+      // took is otherwise only inferable from whether a native call shows up in
+      // logcat, and the reasons for not taking the radio are invisible.
+      Logger.info(
+        'SMS route: radio=${SmsSvc.canSendOverRadio} '
+        '(simPresent=${SmsSvc.simPresent.value}, canSend=${SmsSvc.canSendSms.value}, '
+        'blocked=${SmsSvc.radioSendBlocked.value}), isDefaultSmsApp=${SmsSvc.isDefaultSmsApp.value}',
+        tag: _tag,
+      );
       if (SmsSvc.canSendOverRadio) {
         // SIM ready, radio on, and actually registered on a network.
         await SmsSvc.nativeSend(address, body, tempGuid);
