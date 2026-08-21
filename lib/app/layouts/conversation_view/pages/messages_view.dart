@@ -625,7 +625,13 @@ class MessagesViewState extends State<MessagesView> with MessagesServiceMixin, T
                               controller: controller,
                             ),
                           ),
-                          if (_messages.isEmpty)
+                          // Only while the service is still coming up. Keyed on
+                          // emptiness alone, a genuinely empty conversation — a
+                          // brand-new SMS thread, or one whose first send failed —
+                          // sat on this spinner forever, because nothing was ever
+                          // going to arrive to clear it. Pagination has its own
+                          // loader row further down.
+                          if (_messages.isEmpty && !handlersInitialized)
                             const SliverToBoxAdapter(
                               child: Loader(text: "Loading surrounding message context..."),
                             ),
