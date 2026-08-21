@@ -41,7 +41,16 @@ object SimInfo {
 
         val number = phoneNumber(context)
         val iccid = iccid(context)
-        val key = number?.takeIf { it.isNotBlank() } ?: iccid
+        // Subscription id as the last resort, because the two preferred keys are
+        // both frequently unavailable to a non-privileged app: carriers often
+        // never write the MSISDN to the SIM, and ICCID is restricted to system
+        // apps on Android 11+. Google's own guidance is to use the subscription
+        // id instead. It is less stable across re-insertion, but a null key means
+        // the server cannot elect this device as the primary sender at all, which
+        // is worse.
+        val key = number?.takeIf { it.isNotBlank() }
+            ?: iccid?.takeIf { it.isNotBlank() }
+            ?: subscriptionKey(context)
         // canSend = SIM ready AND radio available AND actually on a network.
         return mapOf("present" to true, "canSend" to (!airplane && inService), "airplaneMode" to airplane,
                      "inService" to inService, "simKey" to key, "number" to number, "iccid" to iccid,
@@ -213,6 +222,18 @@ object SimInfo {
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * A key derived from the active subscription, qualified by the operator so it
+     * doesn't collide with a different SIM that happens to reuse the id.
+     */
+    private fun subscriptionKey(context: Context): String? = try {
+        val sm = context.getSystemService(SubscriptionManager::class.java)
+        val info = sm?.activeSubscriptionInfoList?.firstOrNull()
+        info?.let { "sub:${it.subscriptionId}:${it.mcc}${it.mnc}" }
+    } catch (_: Exception) {
+        null
     }
 
     private fun iccid(context: Context): String? {

@@ -438,10 +438,14 @@ class _SmsAgentPanelState extends State<SmsAgentPanel> with ThemeHelpers {
                     subtitle = "$manual • entered manually";
                   } else if (fromSim != null && fromSim.isNotEmpty) {
                     subtitle = fromSim;
-                  } else if (SmsSvc.simKey.value != null) {
-                    subtitle = "No number from SIM • tap to enter it";
+                  } else if (SmsSvc.simPresent.value) {
+                    // Presence and readability are different questions, and this
+                    // row used to conflate them: carriers frequently don't store
+                    // the MSISDN, and ICCID is system-apps-only on Android 11+, so
+                    // a perfectly working SIM reads as "no SIM".
+                    subtitle = "SIM detected, but it won't report its number • tap to enter it";
                   } else {
-                    subtitle = "Unknown (no SIM / not readable) • tap to enter it";
+                    subtitle = "No SIM detected • tap to enter the number anyway";
                   }
                   return SettingsTile(
                     backgroundColor: tileColor,
