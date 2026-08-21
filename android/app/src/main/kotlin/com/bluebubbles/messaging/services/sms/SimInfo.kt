@@ -27,6 +27,7 @@ object SimInfo {
         val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
             ?: return mapOf("present" to false, "canSend" to false, "airplaneMode" to airplane,
                             "simKey" to null, "number" to null, "iccid" to null)
+        logRawState(context, tm)
         val present = simPresent(context, tm)
         if (!present) return mapOf("present" to false, "canSend" to false, "airplaneMode" to airplane,
                                    "inService" to false, "simKey" to null, "number" to null, "iccid" to null,
@@ -61,6 +62,36 @@ object SimInfo {
      * to the default slot, so a device that refuses the subscription list still
      * gets an answer.
      */
+    /**
+     * Log every raw telephony fact behind the SIM decision.
+     *
+     * Worth having permanently. "No SIM" is reached by several different APIs
+     * disagreeing, and on OEM builds some of them return empty rather than
+     * throwing even with the permission granted — which is indistinguishable from
+     * a genuinely empty tray unless each is printed separately.
+     */
+    private fun logRawState(context: Context, tm: TelephonyManager) {
+        val slots = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) tm.activeModemCount
+            else @Suppress("DEPRECATION") tm.phoneCount
+        }
+        val perSlot = runCatching {
+            (0 until (slots.getOrNull() ?: 0)).map { tm.getSimState(it) }
+        }
+        val subs = runCatching {
+            context.getSystemService(SubscriptionManager::class.java)?.activeSubscriptionInfoList?.size
+        }
+        Log.i(
+            Constants.logTag,
+            "SimInfo: simState=${runCatching { tm.simState }.getOrNull()} " +
+                "slots=${slots.getOrNull() ?: "err:${slots.exceptionOrNull()?.javaClass?.simpleName}"} " +
+                "perSlotStates=${perSlot.getOrNull() ?: "err:${perSlot.exceptionOrNull()?.javaClass?.simpleName}"} " +
+                "activeSubs=${subs.getOrNull() ?: "err/null:${subs.exceptionOrNull()?.javaClass?.simpleName}"} " +
+                "operator='${runCatching { tm.simOperator }.getOrNull()}' " +
+                "networkOperator='${runCatching { tm.networkOperator }.getOrNull()}'",
+        )
+    }
+
     private fun simPresent(context: Context, tm: TelephonyManager): Boolean {
         runCatching {
             val sm = context.getSystemService(SubscriptionManager::class.java)
