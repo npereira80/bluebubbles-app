@@ -517,6 +517,15 @@ class SmsService {
       if (d > maxDate) maxDate = d;
       final bool fromMe = (map['isFromMe'] as bool?) ?? false;
       if (!firstRun && fromMe) continue;
+
+      // A sign-in in progress is waiting for the code this phone texted itself.
+      // It has to be offered here as well as in onSmsReceived: without the SMS
+      // role that broadcast never arrives, so in observer mode the code came in
+      // through this import and the sign-in sat waiting for something that had
+      // already been filed as an ordinary message.
+      if (!firstRun && !fromMe && SmsAccount.offerIncoming((map['body'] as String?) ?? '')) {
+        continue;
+      }
       // live: these really are arriving now, so the watches and unread counts
       // should treat them as such rather than as history.
       await _insert(map, live: announce);
