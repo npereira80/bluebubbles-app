@@ -717,6 +717,13 @@ class SmsService {
     }
 
     if (!refused && canHandOff && await _handOffToDefaultApp(address, body)) return true;
+
+    // Worth stating loudly, because the symptom otherwise is a message that
+    // simply sits there: every route was ruled out, and which ones were even
+    // considered depends on state the person can't see.
+    Logger.warn('SmsService: no route for this SMS — simPresent=${simPresent.value}, '
+        'canSendSms=${canSendSms.value}, radioBlocked=${radioSendBlocked.value}, '
+        'isDefaultSmsApp=${isDefaultSmsApp.value}');
     return false;
   }
 

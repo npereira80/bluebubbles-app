@@ -27,9 +27,10 @@ object SimInfo {
         val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
             ?: return mapOf("present" to false, "canSend" to false, "airplaneMode" to airplane,
                             "simKey" to null, "number" to null, "iccid" to null)
-        val present = tm.simState == TelephonyManager.SIM_STATE_READY
+        val present = simPresent(context, tm)
         if (!present) return mapOf("present" to false, "canSend" to false, "airplaneMode" to airplane,
-                                   "inService" to false, "simKey" to null, "number" to null, "iccid" to null)
+                                   "inService" to false, "simKey" to null, "number" to null, "iccid" to null,
+                                   "countryIso" to countryIso(tm))
 
         // A SIM in the tray with the radio on still can't send when the device has
         // no coverage. Android would accept the message and hold it in the radio
@@ -44,6 +45,42 @@ object SimInfo {
         return mapOf("present" to true, "canSend" to (!airplane && inService), "airplaneMode" to airplane,
                      "inService" to inService, "simKey" to key, "number" to number, "iccid" to iccid,
                      "countryIso" to countryIso(tm))
+    }
+
+    /**
+     * Whether this device has a usable SIM.
+     *
+     * `TelephonyManager.simState` only describes the *default* slot, so on a
+     * dual-SIM or eSIM phone it reports ABSENT whenever the SIM lives in the
+     * other slot — and then nothing here believes the phone can send, the
+     * composer never tries the radio, and the message is quietly parked with no
+     * error to explain it.
+     *
+     * An active subscription is the honest signal: it exists per SIM, physical or
+     * embedded, regardless of slot. Falls back to the per-slot states and finally
+     * to the default slot, so a device that refuses the subscription list still
+     * gets an answer.
+     */
+    private fun simPresent(context: Context, tm: TelephonyManager): Boolean {
+        runCatching {
+            val sm = context.getSystemService(SubscriptionManager::class.java)
+            val subs = sm?.activeSubscriptionInfoList
+            if (subs != null && subs.isNotEmpty()) return true
+        }
+
+        runCatching {
+            val slots = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                tm.activeModemCount
+            } else {
+                @Suppress("DEPRECATION")
+                tm.phoneCount
+            }
+            for (slot in 0 until slots) {
+                if (tm.getSimState(slot) == TelephonyManager.SIM_STATE_READY) return true
+            }
+        }
+
+        return tm.simState == TelephonyManager.SIM_STATE_READY
     }
 
     /**
