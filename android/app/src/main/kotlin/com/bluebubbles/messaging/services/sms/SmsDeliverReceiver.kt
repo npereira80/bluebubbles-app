@@ -16,20 +16,9 @@ import com.bluebubbles.messaging.services.backend_ui_interop.MethodCallHandler
  */
 class SmsDeliverReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        // One line per delivery, deliberately kept: when SMS "doesn't work" on an
-        // OEM ROM, the only question that matters first is whether the broadcast
-        // reached us at all, and nothing else in the system answers it.
-        Log.i(Constants.logTag, "SMS_DELIVER received (action=${intent.action})")
-
         if (intent.action != Telephony.Sms.Intents.SMS_DELIVER_ACTION) return
-        val msgs = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: run {
-            Log.e(Constants.logTag, "SMS_DELIVER: no PDUs in the intent")
-            return
-        }
-        if (msgs.isEmpty()) {
-            Log.e(Constants.logTag, "SMS_DELIVER: empty message array")
-            return
-        }
+        val msgs = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
+        if (msgs.isEmpty()) return
 
         val address = msgs[0].displayOriginatingAddress ?: ""
         val body = msgs.joinToString("") { it.displayMessageBody ?: "" }
