@@ -8,7 +8,9 @@ import android.provider.Settings
 import android.telephony.ServiceState
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
+import android.util.Log
 import androidx.core.content.ContextCompat
+import com.bluebubbles.messaging.Constants
 
 /**
  * SIM presence, the subscriber phone number (when the carrier/SIM exposes it),
