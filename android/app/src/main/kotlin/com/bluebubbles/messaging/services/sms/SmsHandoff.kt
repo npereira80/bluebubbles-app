@@ -35,7 +35,12 @@ class SmsHandoffHandler : MethodCallHandlerImpl() {
     override fun handleMethodCall(call: MethodCall, result: MethodChannel.Result, context: Context) {
         val address = call.argument<String>("address") ?: ""
         val body = call.argument<String>("body") ?: ""
+        // Logged on entry because the Dart-side logger writes to a file rather
+        // than logcat: without this there is no way to tell "the hand-off failed"
+        // from "the hand-off was never reached".
+        Log.i(Constants.logTag, "sms-handoff requested for ${address.take(4)}… (${body.length} chars)")
         if (address.isEmpty()) {
+            Log.e(Constants.logTag, "sms-handoff: no address")
             result.success(false)
             return
         }
@@ -49,6 +54,7 @@ class SmsHandoffHandler : MethodCallHandlerImpl() {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
+            Log.i(Constants.logTag, "sms-handoff: launched the default SMS app")
             result.success(true)
         } catch (e: Exception) {
             Log.e(Constants.logTag, "sms-handoff failed", e)
