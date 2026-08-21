@@ -606,7 +606,7 @@ class SmsService {
     final guid = message.guid;
     final body = message.text ?? '';
     if (guid == null || body.isEmpty) return false;
-    if (message.attachments.isNotEmpty) return false;
+    if (message.hasAttachments) return false;
 
     final chat = message.chat.target;
     final address = chat == null ? null : ChatMerge.oneOnOneNumber(chat);
