@@ -61,6 +61,14 @@ class SmsPermissionsHandler : MethodCallHandlerImpl() {
             Manifest.permission.SEND_SMS,
             Manifest.permission.RECEIVE_MMS,
             Manifest.permission.RECEIVE_WAP_PUSH,
+            // Not optional, though it looks it. Without phone state there is no
+            // activeSubscriptionInfoList, no ICCID and no MSISDN, so the app
+            // concludes the phone has no SIM: the composer skips the radio, the
+            // relay is chosen instead, and the message is parked. Leaving these
+            // out of the check meant the settings row said "Granted" while the
+            // one permission that mattered was denied.
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_PHONE_NUMBERS,
         )
     }
 
@@ -92,6 +100,11 @@ class SmsRequestPermissionsHandler : MethodCallHandlerImpl() {
             Manifest.permission.SEND_SMS,
             Manifest.permission.RECEIVE_MMS,
             Manifest.permission.RECEIVE_WAP_PUSH,
+            // Phone state is what makes the SIM visible at all — see the required
+            // list above. Asking for it here keeps the prompt and the check in
+            // agreement, so "grant" actually clears the warning.
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_PHONE_NUMBERS,
         )
         val activity = context as? Activity
         if (activity != null) {
