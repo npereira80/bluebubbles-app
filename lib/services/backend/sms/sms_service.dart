@@ -653,31 +653,19 @@ class SmsService {
     // Already queued: nothing more to decide.
     if (pendingSendGuids.contains(guid)) return true;
 
-    // The relay asks the server to send from whichever device has a usable SIM.
-    // When that's this device, the request comes straight back here and fails
-    // again — so it's only worth trying when the SIM is somewhere else.
-    if (!simPresent.value) {
-      try {
-        await sendTextViaServer(address, body);
-        Logger.info('SmsService: radio refused $guid, relayed it through the server instead');
-        return true;
-      } catch (e) {
-        Logger.warn('SmsService: relay unavailable after a radio refusal: $e');
-      }
-    }
-
-    // We hold the SIM and can't use it. Hand the message to whichever app does
-    // hold the SMS role: it can always send, and it writes the result to
-    // content://sms, which the provider observer imports and syncs like any
-    // other outgoing message. Costs an app switch and a tap.
-    if (simPresent.value && await _handOffToDefaultApp(address, body)) {
-      // Drop our optimistic bubble. The copy the role holder writes comes back
-      // through the provider with a real timestamp and content hash; keeping
-      // both would show the message twice, since a temp GUID can't dedupe
-      // against it.
-      await Message.softDelete(guid);
-      if (chat != null && Get.isRegistered<MessagesService>(tag: chat.guid)) {
-        MessagesSvc(chat.guid).removeMessage(message);
+    // Same decision as the composer takes — deliberately shared, so the two
+    // paths can't disagree about where a message should go.
+    if (await sendTextWithoutRadio(address, body)) {
+      // A hand-off means another app now owns sending it, and will write the
+      // sent copy to the provider. Our optimistic bubble can't dedupe against
+      // that copy (its GUID is still the temp one), so it has to go or the
+      // message shows twice. A relay keeps its bubble: that route reports back
+      // through the server and stays ours.
+      if (simPresent.value && !isDefaultSmsApp.value) {
+        await Message.softDelete(guid);
+        if (chat != null && Get.isRegistered<MessagesService>(tag: chat.guid)) {
+          MessagesSvc(chat.guid).removeMessage(message);
+        }
       }
       return true;
     }
@@ -699,23 +687,37 @@ class SmsService {
   /// when the radio is known to be unusable, and the reroute after the radio has
   /// refused a send — and they must not disagree.
   ///
-  /// Relay first, but only when the SIM is in a *different* device: the server
-  /// dispatches to whichever device has one, so relaying from the phone that
-  /// holds the SIM sends the request straight back here. When we do hold it, the
-  /// only remaining route is the app that holds the SMS role.
+  /// Which route comes first depends on *why* the radio is out, and the two
+  /// cases pull in opposite directions:
+  ///
+  ///  - **Refused.** The SIM is registered and can send; this ROM just won't let
+  ///    us. Another device is no better placed than we are, so the right answer
+  ///    is the app that *is* allowed to use this SIM.
+  ///  - **Unavailable.** No SIM, airplane mode, or no coverage. Nothing on this
+  ///    phone can send, including the OEM app, so the only hope is a device with
+  ///    a different SIM — the relay.
+  ///
+  /// Each is still tried as the other's fallback, because the classification is
+  /// a guess and being wrong shouldn't cost the message.
   ///
   /// Returns false when nothing worked, so the caller can queue it.
   Future<bool> sendTextWithoutRadio(String address, String body) async {
-    if (!simPresent.value) {
-      try {
-        await sendTextViaServer(address, body);
-        return true;
-      } catch (e) {
-        Logger.warn('SmsService: relay unavailable: $e');
-        return false;
-      }
+    final refused = radioSendBlocked.value && simPresent.value;
+    // Handing off to "the default SMS app" when that app is us would just
+    // reopen our own composer.
+    final canHandOff = simPresent.value && !isDefaultSmsApp.value;
+
+    if (refused && canHandOff && await _handOffToDefaultApp(address, body)) return true;
+
+    try {
+      await sendTextViaServer(address, body);
+      return true;
+    } catch (e) {
+      Logger.warn('SmsService: relay unavailable: $e');
     }
-    return _handOffToDefaultApp(address, body);
+
+    if (!refused && canHandOff && await _handOffToDefaultApp(address, body)) return true;
+    return false;
   }
 
   /// Open the SMS-role holder with the message prefilled, as a last resort.

@@ -925,11 +925,11 @@ class OutgoingMessageHandler {
         if (!await SmsSvc.sendTextWithoutRadio(address, body)) {
           throw StateError('no route available for this SMS');
         }
-        // Handed to another app to send: it will write the sent message to the
-        // provider, and the observer imports that copy. Keeping this optimistic
-        // one too would show the message twice, since its temp GUID can't dedupe
-        // against the real one.
-        if (SmsSvc.simPresent.value) {
+        // If that was a hand-off, another app now owns sending it and will write
+        // the sent copy to the provider, which the observer imports. Keeping this
+        // optimistic one too would show the message twice, since its temp GUID
+        // can't dedupe against the real one. A relay keeps its bubble.
+        if (SmsSvc.simPresent.value && !SmsSvc.isDefaultSmsApp.value) {
           await _finalizeHandedOff(c, m, tempGuid);
           return;
         }
