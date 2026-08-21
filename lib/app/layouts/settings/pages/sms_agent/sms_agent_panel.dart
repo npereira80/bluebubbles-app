@@ -378,9 +378,13 @@ class _SmsAgentPanelState extends State<SmsAgentPanel> with ThemeHelpers {
                     subtitle: isDefault
                         ? "Yes — Android SMS is handled here"
                         : observing
-                            ? "No — reading Android's message store instead. "
-                                "Messages still arrive and sending works. Your "
-                                "replies won't show in the built-in app."
+                            ? SmsSvc.radioSendBlocked.value
+                                ? "No — reading Android's message store, and this "
+                                    "phone's radio won't send for us, so messages go "
+                                    "out through your sync server."
+                                : "No — reading Android's message store instead. "
+                                    "Messages still arrive and sending works. Your "
+                                    "replies won't show in the built-in app."
                             : "No — tap to set Bubbles as your SMS app",
                     isThreeLine: observing,
                     onTap: () async {

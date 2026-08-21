@@ -91,6 +91,32 @@ class SmsService {
 
   final RxBool simPresent = false.obs;   // a SIM is physically present in this device
   final RxBool canSendSms = false.obs;   // SIM present AND radio on (not airplane) → can send natively
+
+  /// This phone's radio accepts the send call and then refuses it.
+  ///
+  /// Learned rather than assumed, because nothing in the Android API advertises
+  /// it: vivo's China ROM returns GENERIC_FAILURE for an app that doesn't hold
+  /// the SMS role, on a phone with full signal. Retrying the radio can never
+  /// succeed there, so once observed, sends prefer the relay.
+  ///
+  /// Cleared by any successful native send, so a wrong guess or a ROM update
+  /// fixes itself rather than permanently routing a working phone through the
+  /// server.
+  final RxBool radioSendBlocked = false.obs;
+  static const String _kRadioSendBlocked = 'tn_sms_radio_send_blocked';
+
+  /// Whether sending over this phone's own radio is worth attempting.
+  bool get canSendOverRadio => canSendSms.value && !radioSendBlocked.value;
+
+  Future<void> _setRadioSendBlocked(bool blocked) async {
+    if (radioSendBlocked.value == blocked) return;
+    radioSendBlocked.value = blocked;
+    final prefs = await _sp;
+    await prefs.setBool(_kRadioSendBlocked, blocked);
+    Logger.info(blocked
+        ? 'SmsService: this radio refuses our sends — routing through the relay'
+        : 'SmsService: a native send succeeded — using the radio again');
+  }
   final Rx<SmsSyncState> syncState = SmsSyncState.idle.obs;
 
   /// SMS/MMS runtime permissions. Separate from [isDefaultSmsApp]: the role can be
@@ -200,6 +226,7 @@ class SmsService {
     serverUrl = prefs.getString(_kServerUrl) ?? _bakedUrl;
     serverSecret = prefs.getString(_kServerSecret) ?? _bakedSecret;
     simNumberManual.value = prefs.getString(_kSimNumberManual);
+    radioSendBlocked.value = prefs.getBool(_kRadioSendBlocked) ?? false;
   }
 
   void _startTimer() {
@@ -543,10 +570,21 @@ class SmsService {
     if (message == null) return;
     final chat = message.chat.target;
     if (status == 'failed') {
+      // The radio refused it. Before showing a red bubble, try the routes that
+      // don't involve this phone's radio at all.
+      //
+      // The three-tier send only ever fell back when there was no cellular
+      // service, on the assumption that a SIM with signal means a send will go
+      // out. That isn't true on every ROM: vivo's China build returns
+      // GENERIC_FAILURE for an app that doesn't hold the SMS role, on a phone
+      // with full signal, and no amount of retrying the radio will change it.
+      if (await _rerouteFailedSend(message)) return;
       message.error = MessageError.BAD_REQUEST.code;
       message.dateDelivered = null;
       message.save();
     } else if (status == 'sent') {
+      // Proof the radio works for us, whatever we concluded before.
+      await _setRadioSendBlocked(false);
       if (message.error != 0 || message.dateDelivered != null) return;
       message.dateDelivered = DateTime.now();
       message.save();
@@ -556,6 +594,49 @@ class SmsService {
     if (chat != null && Get.isRegistered<MessagesService>(tag: chat.guid)) {
       MessagesSvc(chat.guid).updateMessage(message);
     }
+  }
+
+  /// Try to get a radio-rejected message out another way: the server relay,
+  /// then the pending outbox. Returns true when it has been taken care of, so
+  /// the caller leaves the bubble alone instead of marking it failed.
+  ///
+  /// Text only. An MMS carries media that isn't recoverable from the message
+  /// row here, so those still surface the failure.
+  Future<bool> _rerouteFailedSend(Message message) async {
+    final guid = message.guid;
+    final body = message.text ?? '';
+    if (guid == null || body.isEmpty) return false;
+    if (message.attachments.isNotEmpty) return false;
+
+    final chat = message.chat.target;
+    final address = chat == null ? null : ChatMerge.oneOnOneNumber(chat);
+    if (address == null) return false;
+
+    // A refusal while the radio reported itself perfectly able to send is the
+    // signature of a ROM-level block, not a transient error. Remember it so the
+    // outbox stops retrying a route that cannot work.
+    if (canSendSms.value) await _setRadioSendBlocked(true);
+
+    // Already queued: nothing more to decide.
+    if (pendingSendGuids.contains(guid)) return true;
+
+    try {
+      await sendTextViaServer(address, body);
+      Logger.info('SmsService: radio refused $guid, relayed it through the server instead');
+      return true;
+    } catch (e) {
+      Logger.warn('SmsService: relay unavailable after a radio refusal: $e');
+    }
+
+    // No relay either. Hold it rather than losing it — the outbox retries on
+    // every connectivity change, so it goes out when the server is reachable.
+    await queuePendingSend(
+      guid: guid,
+      address: address,
+      body: body,
+      ts: message.dateCreated?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch,
+    );
+    return true;
   }
 
   // ---- outbound (called by OutgoingMessageHandler for SMS chats) ----
@@ -668,7 +749,7 @@ class SmsService {
         final body = item['body'] as String;
         final ts = (item['ts'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
         try {
-          if (canSendSms.value) {
+          if (canSendOverRadio) {
             await nativeSend(address, body, guid);
             unawaited(recordOutgoing(address, body, ts));
           } else {

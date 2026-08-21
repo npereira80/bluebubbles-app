@@ -868,7 +868,7 @@ class OutgoingMessageHandler {
       final int ts = m.dateCreated?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
       final body = m.text!;
 
-      if (SmsSvc.canSendSms.value) {
+      if (SmsSvc.canSendOverRadio) {
         await SmsSvc.nativeSend(address, body, tempGuid);
         m.dateDelivered = DateTime.now();
         unawaited(SmsSvc.recordOutgoing(address, body, ts));
@@ -912,7 +912,7 @@ class OutgoingMessageHandler {
 
     try {
       final int ts = m.dateCreated?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
-      if (SmsSvc.canSendSms.value) {
+      if (SmsSvc.canSendOverRadio) {
         // SIM ready, radio on, and actually registered on a network.
         await SmsSvc.nativeSend(address, body, tempGuid);
         m.dateDelivered = DateTime.now();
@@ -986,7 +986,7 @@ class OutgoingMessageHandler {
       final int ts = m.dateCreated?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
       final sentGuid = SmsService.smsGuid(isFromMe: true, address: address, body: caption, dateMs: ts);
       m.guid = sentGuid;
-      if (SmsSvc.canSendSms.value) {
+      if (SmsSvc.canSendOverRadio) {
         // A native MMS send is asynchronous: the platform reports success or
         // failure much later via MmsSentReceiver → onSentStatus, which stamps
         // the bubble delivered or failed. Do NOT claim "delivered" up front, or
