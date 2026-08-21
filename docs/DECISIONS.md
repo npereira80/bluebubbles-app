@@ -301,3 +301,38 @@ Obx(() => Column(children: [
 - New UI features must be built as small composable widgets from the start — retrofitting decomposition is expensive.
 - Prefer creating a new file per logical widget over adding private classes to an existing large file.
 - The `lib/app/layouts/conversation_view/widgets/message/` directory is the canonical example of correct decomposition: 54+ files, each handling one narrow responsibility.
+
+---
+
+## ADR-014: Bubbles Works Without the SMS Role, by Reading the System Store
+
+**Decision:** The app does not require the Android SMS role. When it can read the message store but doesn't hold the role — "observer mode" — it imports messages from `content://sms` and `content://mms` and sends over the radio directly.
+
+**Context:** Some OEM ROMs will not let a sideloaded app hold the SMS role. On a vivo X Fold running the China OriginOS build, the role was reassigned back to the built-in Messages app within seconds of being set, with a system dialog describing the reassignment as a security measure. Every route to change that was refused:
+
+| Attempt | Result |
+|---|---|
+| `pm disable-user --user 0 com.android.mms` | `SecurityException: no root permission` |
+| `pm uninstall -k --user 0 com.android.mms` | `DELETE_FAILED_USER_RESTRICTED` |
+| `cmd role add-role-holder ... com.ikuteam.bubbles` | Applied, then silently reverted |
+| `cmd role remove-role-holder ... com.android.mms` | No effect |
+| `pm disable-user --user 0 com.android.mms.service` | `SecurityException: no root permission` |
+| Reinstall with `install -i com.android.vending` | Attribution changed, role still reverted |
+
+The enforcing component is `com.android.mms.service` — identified from `dumpsys window` while its dialog was showing, and notable because on AOSP that package is only the framework's MmsService, which our MMS path depends on. Install attribution is not the gate: forging it changed nothing. Google Messages, installed from Play, *does* hold the role and keeps it across reboots, so the ROM appears to allowlist specific apps.
+
+**Rationale:**
+- Whichever app holds the role is obliged to write every message to `content://sms`, and `READ_SMS` is enough to read it back. So receiving does not actually require the role.
+- Sending needs `SEND_SMS`, not the role. It was blocked while the *built-in* app held the role, and worked once a third-party app did, so the block is tied to vivo's own app being the holder rather than to us lacking the role.
+- A `ContentObserver` fires on insert, so imports are immediate; the 3s foreground poll only covers a ROM that suppresses the notification.
+
+**Consequences:**
+- Only the role holder may write to the provider. So in observer mode: outgoing messages do not appear in the OEM app, read state cannot be pushed back to it, and server history cannot be restored into the system store. Bubbles' own history, the sync server, the Mac and the watches are unaffected.
+- The role holder also notifies, so its notifications should be muted by hand. Bubbles posts its own for anything it imports.
+- Setup can be completed without the role (`sms_only_dialog` offers "Continue anyway" once asking has visibly failed), because on such a device it can never be granted.
+- **Working configuration for a locked OEM ROM:** install any third-party SMS app from the device's own store, make it the default, and leave Bubbles in observer mode. This also keeps the OEM app from reclaiming the role.
+
+**Traps found along the way, all of which produced "no SIM" or a silent failure:**
+- `TelephonyManager.simState` and `getSystemService(SmsManager.class)` describe the *default slot / subscription*, not the active SIM. On a dual-SIM or eSIM phone both are wrong whenever the SIM is in the other slot.
+- `READ_PHONE_STATE` / `READ_PHONE_NUMBERS` are normally granted with the SMS role but not always. Without them there is no `activeSubscriptionInfoList`, no ICCID and no MSISDN, so the app concludes there is no SIM.
+- ICCID is system-apps-only since Android 11, and carriers frequently never write the MSISDN to the SIM. A null SIM identifier is therefore expected, not a fault, and must not be read as "no SIM".
