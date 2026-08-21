@@ -6,6 +6,7 @@ export 'network/network_tasks.dart';
 export 'types/classes/chat_service_type.dart';
 export 'types/extensions/extensions.dart';
 export 'types/helpers/contact_helpers.dart';
+export 'types/helpers/phone_region.dart';
 export 'types/helpers/date_helpers.dart';
 export 'types/helpers/message_helper.dart';
 export 'types/helpers/misc_helpers.dart';

@@ -463,7 +463,9 @@ class ChatCreatorController extends StatefulController {
   /// aren't in an active subscriber range (e.g. 555 numbers in the US).
   String normalizeToE164(String phone) {
     if (phone.startsWith('+')) return phone; // already has country code
-    final cc = Get.deviceLocale?.countryCode ?? 'US';
+    // The SIM's country, not the UI locale: a Portuguese SIM in a phone set to
+    // English reported US and turned 916309004 into +1916309004.
+    final cc = PhoneRegion.current;
     try {
       final parsed = PhoneNumberUtil.instance.parse(phone, cc);
       if (PhoneNumberUtil.instance.isValidNumber(parsed)) {

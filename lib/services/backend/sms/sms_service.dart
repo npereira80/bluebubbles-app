@@ -283,6 +283,8 @@ class SmsService {
       simNumber.value = sim['number'] as String?;
       simPresent.value = (sim['present'] as bool?) ?? false;
       canSendSms.value = (sim['canSend'] as bool?) ?? false;
+      // Everything that parses a typed-in national number reads this.
+      PhoneRegion.set(sim['countryIso'] as String?);
       await refreshPermissions();
     } catch (_) {}
   }
@@ -1061,6 +1063,7 @@ class SmsService {
       simNumber.value = sim['number'] as String?;
       simPresent.value = (sim['present'] as bool?) ?? false;
       canSendSms.value = (sim['canSend'] as bool?) ?? false;
+      PhoneRegion.set(sim['countryIso'] as String?);
       // Report canSend (not mere SIM presence) so the server won't elect a
       // device that can't currently transmit (e.g. airplane mode) as primary.
       await _server!.heartbeat((sim['canSend'] as bool?) ?? false, sim['simKey'] as String?);
@@ -1471,7 +1474,11 @@ class SmsService {
     final digits = s.replaceAll(RegExp(r'[^0-9]'), '');
     if (digits.length < 6) return s; // short code — keep distinct
     final util = PhoneNumberUtil.instance;
-    final cc = Get.deviceLocale?.countryCode ?? 'US';
+    // Must be the SIM's country. Getting this wrong doesn't just misformat: the
+    // canonical address is the chat's identity, so a number canonicalised under
+    // the wrong region lands in a different thread than the same number seen
+    // later under the right one.
+    final cc = PhoneRegion.current;
     // 1) parse as national for the device region; 2) parse as already-international.
     for (final cand in <String>[s, '+$digits']) {
       try {

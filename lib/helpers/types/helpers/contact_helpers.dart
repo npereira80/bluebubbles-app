@@ -1,10 +1,9 @@
 import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/database/models.dart';
 import 'package:dlibphonenumber/dlibphonenumber.dart';
-import 'package:get/get.dart';
 
 String formatPhoneNumber(dynamic item) {
-  String cc = Get.deviceLocale?.countryCode ?? "US";
+  String cc = PhoneRegion.current;
   String? address;
 
   // Set the address/country accordingly
@@ -24,7 +23,14 @@ String formatPhoneNumber(dynamic item) {
   String? formatted;
   try {
     final parsed = PhoneNumberUtil.instance.parse(address, address.startsWith("+") ? null : cc);
-    formatted = PhoneNumberUtil.instance.format(parsed, PhoneNumberFormat.international);
+    // Only reformat when the number really is valid for that region. Formatting
+    // unconditionally is how a Portuguese "916309004" came out as "+1 916309004":
+    // parse() happily attaches the region's country code to digits that could
+    // never be a number there, and the display then asserts a number the user
+    // never typed. Showing it exactly as entered is always safe.
+    if (PhoneNumberUtil.instance.isValidNumber(parsed)) {
+      formatted = PhoneNumberUtil.instance.format(parsed, PhoneNumberFormat.international);
+    }
   } catch (_) {}
 
   return formatted ?? address;

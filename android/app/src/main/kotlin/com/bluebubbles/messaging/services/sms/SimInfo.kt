@@ -42,7 +42,8 @@ object SimInfo {
         val key = number?.takeIf { it.isNotBlank() } ?: iccid
         // canSend = SIM ready AND radio available AND actually on a network.
         return mapOf("present" to true, "canSend" to (!airplane && inService), "airplaneMode" to airplane,
-                     "inService" to inService, "simKey" to key, "number" to number, "iccid" to iccid)
+                     "inService" to inService, "simKey" to key, "number" to number, "iccid" to iccid,
+                     "countryIso" to countryIso(tm))
     }
 
     /**
@@ -68,6 +69,26 @@ object SimInfo {
         } catch (_: Exception) {
             true
         }
+    }
+
+    /**
+     * The country this line belongs to, as an ISO 3166-1 alpha-2 code.
+     *
+     * This is what a typed-in national number has to be parsed against. The UI
+     * locale is the wrong source and silently corrupts numbers: a Portuguese SIM
+     * in a phone set to English gives "en_US", so "916309004" parses as country
+     * code 1 and becomes +1916309004 — a number that will never connect.
+     *
+     * SIM before network, because the SIM says whose line it is while the network
+     * only says where the phone currently is (wrong while roaming). Neither
+     * requires a permission.
+     */
+    private fun countryIso(tm: TelephonyManager): String? = try {
+        (tm.simCountryIso?.takeIf { it.isNotBlank() }
+            ?: tm.networkCountryIso?.takeIf { it.isNotBlank() })
+            ?.uppercase()
+    } catch (_: Exception) {
+        null
     }
 
     private fun granted(context: Context, perm: String) =
