@@ -103,19 +103,49 @@ class SmsService {
   /// fixes itself rather than permanently routing a working phone through the
   /// server.
   final RxBool radioSendBlocked = false.obs;
-  static const String _kRadioSendBlocked = 'tn_sms_radio_send_blocked';
+  static const String _kRadioSendBlockedAt = 'tn_sms_radio_send_blocked_at';
+
+  /// The conclusion expires, and has to.
+  ///
+  /// A successful native send clears the flag, but while it's set no native send
+  /// is attempted — so on its own it is a one-way door: granting the ROM
+  /// permission that fixes sending, or a system update, would never be noticed.
+  /// Expiring it means the radio gets retried periodically and the cost of being
+  /// wrong is one failed send per window rather than forever.
+  static const Duration _radioBlockTtl = Duration(hours: 6);
 
   /// Whether sending over this phone's own radio is worth attempting.
   bool get canSendOverRadio => canSendSms.value && !radioSendBlocked.value;
 
   Future<void> _setRadioSendBlocked(bool blocked) async {
+    final prefs = await _sp;
+    if (blocked) {
+      await prefs.setInt(_kRadioSendBlockedAt, DateTime.now().millisecondsSinceEpoch);
+    } else {
+      await prefs.remove(_kRadioSendBlockedAt);
+    }
     if (radioSendBlocked.value == blocked) return;
     radioSendBlocked.value = blocked;
-    final prefs = await _sp;
-    await prefs.setBool(_kRadioSendBlocked, blocked);
     Logger.info(blocked
         ? 'SmsService: this radio refuses our sends — routing through the relay'
         : 'SmsService: a native send succeeded — using the radio again');
+  }
+
+  /// Re-read the block, dropping it once [_radioBlockTtl] has passed.
+  Future<void> _loadRadioSendBlocked(SharedPreferences prefs) async {
+    final at = prefs.getInt(_kRadioSendBlockedAt);
+    if (at == null) {
+      radioSendBlocked.value = false;
+      return;
+    }
+    final expired = DateTime.now().millisecondsSinceEpoch - at > _radioBlockTtl.inMilliseconds;
+    if (expired) {
+      await prefs.remove(_kRadioSendBlockedAt);
+      radioSendBlocked.value = false;
+      Logger.info('SmsService: retrying the radio — the previous refusal has aged out');
+    } else {
+      radioSendBlocked.value = true;
+    }
   }
   final Rx<SmsSyncState> syncState = SmsSyncState.idle.obs;
 
@@ -226,7 +256,7 @@ class SmsService {
     serverUrl = prefs.getString(_kServerUrl) ?? _bakedUrl;
     serverSecret = prefs.getString(_kServerSecret) ?? _bakedSecret;
     simNumberManual.value = prefs.getString(_kSimNumberManual);
-    radioSendBlocked.value = prefs.getBool(_kRadioSendBlocked) ?? false;
+    await _loadRadioSendBlocked(prefs);
   }
 
   void _startTimer() {
