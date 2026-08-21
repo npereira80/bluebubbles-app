@@ -103,7 +103,10 @@ class SmsService {
   /// fixes itself rather than permanently routing a working phone through the
   /// server.
   final RxBool radioSendBlocked = false.obs;
-  static const String _kRadioSendBlockedAt = 'tn_sms_radio_send_blocked_at';
+  /// v2 because the sender now targets the active SIM's subscription rather than
+  /// the default one. A block recorded before that fix says nothing about whether
+  /// the radio works now, so the old value is deliberately not carried over.
+  static const String _kRadioSendBlockedAt = 'tn_sms_radio_send_blocked_at_v2';
 
   /// The conclusion expires, and has to.
   ///
@@ -688,6 +691,31 @@ class SmsService {
       ts: message.dateCreated?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch,
     );
     return true;
+  }
+
+  /// Get a text out without using this phone's radio.
+  ///
+  /// One place for the decision, because there are two callers — the composer,
+  /// when the radio is known to be unusable, and the reroute after the radio has
+  /// refused a send — and they must not disagree.
+  ///
+  /// Relay first, but only when the SIM is in a *different* device: the server
+  /// dispatches to whichever device has one, so relaying from the phone that
+  /// holds the SIM sends the request straight back here. When we do hold it, the
+  /// only remaining route is the app that holds the SMS role.
+  ///
+  /// Returns false when nothing worked, so the caller can queue it.
+  Future<bool> sendTextWithoutRadio(String address, String body) async {
+    if (!simPresent.value) {
+      try {
+        await sendTextViaServer(address, body);
+        return true;
+      } catch (e) {
+        Logger.warn('SmsService: relay unavailable: $e');
+        return false;
+      }
+    }
+    return _handOffToDefaultApp(address, body);
   }
 
   /// Open the SMS-role holder with the message prefilled, as a last resort.

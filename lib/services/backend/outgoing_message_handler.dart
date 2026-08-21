@@ -918,10 +918,21 @@ class OutgoingMessageHandler {
         m.dateDelivered = DateTime.now();
         unawaited(SmsSvc.recordOutgoing(address, body, ts));
       } else {
-        // No SIM, airplane mode, or out of coverage. The relay asks the server to
-        // send it from whichever device currently holds a usable SIM. That may be
-        // no device at all, in which case this throws and we hold the message.
-        await SmsSvc.sendTextViaServer(address, body);
+        // No usable radio: no SIM, airplane mode, out of coverage, or a ROM that
+        // refuses our sends. Relay through another device when the SIM is
+        // elsewhere, otherwise hand off to the app holding the SMS role — the
+        // relay would only route the request back to this phone.
+        if (!await SmsSvc.sendTextWithoutRadio(address, body)) {
+          throw StateError('no route available for this SMS');
+        }
+        // Handed to another app to send: it will write the sent message to the
+        // provider, and the observer imports that copy. Keeping this optimistic
+        // one too would show the message twice, since its temp GUID can't dedupe
+        // against the real one.
+        if (SmsSvc.simPresent.value) {
+          await _finalizeHandedOff(c, m, tempGuid);
+          return;
+        }
       }
       m.guid = SmsService.smsGuid(isFromMe: true, address: address, body: body, dateMs: ts);
       // No remembering here either: this runs both for a route the user chose
@@ -934,6 +945,24 @@ class OutgoingMessageHandler {
       if (await _holdForLater(c, m, tempGuid, address, body)) return;
       await _finalizeOutgoingFailure(c, m, tempGuid,
           logMessage: 'Failed to send SMS', error: e, stack: s);
+    }
+  }
+
+  /// Drop the optimistic bubble for a message another app is now responsible for
+  /// sending.
+  ///
+  /// The role holder writes the sent message to content://sms; the provider
+  /// observer imports it with a real timestamp and content hash, and that copy
+  /// becomes the record. This one can't dedupe against it — its GUID is still the
+  /// temp one — so leaving it would duplicate the message in the thread.
+  Future<void> _finalizeHandedOff(Chat c, Message m, String tempGuid) async {
+    try {
+      await Message.softDelete(tempGuid);
+      if (Get.isRegistered<MessagesService>(tag: c.guid)) {
+        MessagesSvc(c.guid).removeMessage(m);
+      }
+    } catch (e, s) {
+      Logger.warn('Could not clear the handed-off message', error: e, trace: s, tag: _tag);
     }
   }
 
