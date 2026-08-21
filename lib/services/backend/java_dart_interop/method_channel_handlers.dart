@@ -47,6 +47,7 @@ class MethodChannelHandlers {
       MethodChannelInboundMethods.socketEvent: _handleSocketEvent,
       MethodChannelInboundMethods.unifiedpushSettings: _handleUnifiedPushSettings,
       MethodChannelInboundMethods.smsReceived: _handleSmsReceived,
+      MethodChannelInboundMethods.smsProviderChanged: _handleSmsProviderChanged,
       MethodChannelInboundMethods.smsSentStatus: _handleSmsSentStatus,
       MethodChannelInboundMethods.mmsReceived: _handleMmsReceived,
     };
@@ -65,6 +66,20 @@ class MethodChannelHandlers {
   static Future<bool> _retry() => Future.value(false);
 
   // TN Messages fork — local Android SMS from the native engine.
+  /// The system store changed. Carries no message: the observer only reports
+  /// that something moved, and the backfill below already knows how to find what
+  /// is new, assemble MMS parts and skip anything imported.
+  Future<bool> _handleSmsProviderChanged(MethodCall _, Map<String, dynamic>? __) async {
+    if (!GetIt.I.isRegistered<SmsService>()) return _retry();
+    await Database.waitForInit();
+    try {
+      await SmsSvc.importFromProvider();
+    } catch (e, s) {
+      Logger.error('Error importing after a provider change: $e', trace: s);
+    }
+    return _ok();
+  }
+
   Future<bool> _handleSmsReceived(MethodCall _, Map<String, dynamic>? arguments) async {
     if (arguments == null) return _ok();
     if (!GetIt.I.isRegistered<SmsService>()) return _retry();

@@ -365,23 +365,40 @@ class _SmsAgentPanelState extends State<SmsAgentPanel> with ThemeHelpers {
                   );
                 }),
                 const SettingsDivider(),
-                Obx(() => SettingsTile(
-                      backgroundColor: tileColor,
-                      title: "Default SMS app",
-                      subtitle: SmsSvc.isDefaultSmsApp.value
-                          ? "Yes — Android SMS is handled here"
-                          : "No — tap to set BlueBubbles as your SMS app",
-                      onTap: () async {
-                        await SmsSvc.requestDefault();
-                        await Future.delayed(const Duration(seconds: 1));
-                        await SmsSvc.refreshStatus();
-                      },
-                      leading: SettingsLeadingIcon(
-                        iosIcon: CupertinoIcons.chat_bubble_2_fill,
-                        materialIcon: Icons.sms_outlined,
-                        containerColor: SmsSvc.isDefaultSmsApp.value ? Colors.green : Colors.grey,
-                      ),
-                    )),
+                Obx(() {
+                  final isDefault = SmsSvc.isDefaultSmsApp.value;
+                  // Reading the store rather than receiving directly is a real
+                  // difference in behaviour, so say so plainly. Left unexplained
+                  // it reads as "No" next to an app that is nonetheless working,
+                  // which looks like a bug.
+                  final observing = SmsSvc.observerMode;
+                  return SettingsTile(
+                    backgroundColor: tileColor,
+                    title: "Default SMS app",
+                    subtitle: isDefault
+                        ? "Yes — Android SMS is handled here"
+                        : observing
+                            ? "No — reading Android's message store instead. "
+                                "Messages still arrive and sending works. Your "
+                                "replies won't show in the built-in app."
+                            : "No — tap to set Bubbles as your SMS app",
+                    isThreeLine: observing,
+                    onTap: () async {
+                      await SmsSvc.requestDefault();
+                      await Future.delayed(const Duration(seconds: 1));
+                      await SmsSvc.refreshStatus();
+                    },
+                    leading: SettingsLeadingIcon(
+                      iosIcon: CupertinoIcons.chat_bubble_2_fill,
+                      materialIcon: Icons.sms_outlined,
+                      containerColor: isDefault
+                          ? Colors.green
+                          : observing
+                              ? Colors.orange
+                              : Colors.grey,
+                    ),
+                  );
+                }),
                 const SettingsDivider(),
                 // Being the default SMS app isn't enough on its own: if the SMS
                 // permissions didn't come with the role, Android drops incoming

@@ -20,6 +20,9 @@ abstract class MethodChannelInboundMethods {
   static const String unifiedpushSettings = 'unifiedpush-settings';
   // TN Messages fork — local Android SMS
   static const String smsReceived = 'sms-received';
+  /// The system SMS/MMS store changed. Sent by the ContentObserver, for phones
+  /// where an OEM ROM keeps the SMS role and we only get to read the provider.
+  static const String smsProviderChanged = 'sms-provider-changed';
   static const String smsSentStatus = 'sms-sent-status';
   static const String mmsReceived = 'mms-received';
 }

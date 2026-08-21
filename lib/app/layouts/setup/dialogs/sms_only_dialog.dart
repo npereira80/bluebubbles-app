@@ -62,8 +62,17 @@ class _SmsOnlyDialogState extends State<SmsOnlyDialog> with WidgetsBindingObserv
     // didChangeAppLifecycleState picks up the result on return.
   }
 
+  /// True once asking for the role has visibly failed, so continuing without it
+  /// is the only way forward.
+  ///
+  /// Some OEM ROMs will not give the role to a sideloaded app at all — vivo's
+  /// China build reassigns it back to its own Messages app within seconds. Before
+  /// this, setup could not be completed on such a phone: the only button was
+  /// "Set as default", and it could never succeed.
+  bool get _canProceedWithoutRole => _askedOnce && !_isDefault && SmsSvc.hasSmsPermissions.value;
+
   Future<void> _finish() async {
-    if (_working || !_isDefault) return;
+    if (_working || !(_isDefault || _canProceedWithoutRole)) return;
     setState(() => _working = true);
     try {
       await setup.finishSetupWithoutServer();
@@ -110,6 +119,18 @@ class _SmsOnlyDialogState extends State<SmsOnlyDialog> with WidgetsBindingObserv
               style: context.theme.textTheme.bodyMedium?.copyWith(color: context.theme.colorScheme.error),
             ),
           ],
+          if (_canProceedWithoutRole) ...[
+            const SizedBox(height: 14),
+            Text(
+              "Some phones won't hand this role to an app installed outside their own "
+              "store, and keep giving it back to the built-in Messages app.\n\n"
+              "You can continue anyway. Bubbles will read your messages from Android's "
+              "message store instead of receiving them directly, so everything still "
+              "arrives and you can still send. The built-in app will keep its own "
+              "notifications, which you can turn off in Android settings.",
+              style: context.theme.textTheme.bodyMedium,
+            ),
+          ],
           if (_working) ...[
             const SizedBox(height: 20),
             const Center(child: CircularProgressIndicator()),
@@ -130,10 +151,10 @@ class _SmsOnlyDialogState extends State<SmsOnlyDialog> with WidgetsBindingObserv
             child: Text("Set as default",
                 style: context.theme.textTheme.bodyLarge!.copyWith(color: context.theme.colorScheme.primary)),
           ),
-        if (_isDefault)
+        if (_isDefault || _canProceedWithoutRole)
           TextButton(
             onPressed: _working ? null : _finish,
-            child: Text("Continue",
+            child: Text(_isDefault ? "Continue" : "Continue anyway",
                 style: context.theme.textTheme.bodyLarge!.copyWith(color: context.theme.colorScheme.primary)),
           ),
       ],

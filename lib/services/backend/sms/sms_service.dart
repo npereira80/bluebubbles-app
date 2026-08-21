@@ -166,9 +166,13 @@ class SmsService {
         return;
       }
 
-      if (isDefaultSmsApp.value) {
+      if (canReadProvider) {
         await backfill();
       }
+      // Watch the store for anything the OEM app writes. On a phone where we do
+      // hold the role this is redundant but harmless; where we don't, it is the
+      // only way messages ever arrive.
+      await _startProviderWatch();
       unawaited(flushPendingSends());
       if (serverConfigured) {
         await _ensureServer();
@@ -286,6 +290,13 @@ class SmsService {
       // Everything that parses a typed-in national number reads this.
       PhoneRegion.set(sim['countryIso'] as String?);
       await refreshPermissions();
+
+      // The role can be taken away at runtime, not just granted — some OEM ROMs
+      // reassign it back to their own app minutes later. So the poll has to be
+      // reconsidered whenever it changes, in both directions.
+      if (wasDefault != isDefaultSmsApp.value && SettingsSvc.settings.finishedSetup.value) {
+        await _startProviderWatch();
+      }
     } catch (_) {}
   }
 
@@ -305,6 +316,74 @@ class SmsService {
     } catch (e) {
       Logger.warn('SMS permission check failed: $e');
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Observer mode
+  // ---------------------------------------------------------------------------
+
+  /// Whether messages can be read out of the system store at all.
+  ///
+  /// Independent of the SMS role: whichever app holds that role is obliged to
+  /// write every message to content://sms, and READ_SMS is enough to read it
+  /// back. This — not [isDefaultSmsApp] — is what gates importing.
+  bool get canReadProvider => hasSmsPermissions.value || isDefaultSmsApp.value;
+
+  /// Reading the store because we can't receive messages directly.
+  ///
+  /// Some OEM ROMs refuse to let a sideloaded app hold the SMS role. vivo's China
+  /// build reassigns it back to its own Messages app within seconds and protects
+  /// that app from both `pm disable-user` and `pm uninstall --user 0`. Rather than
+  /// being unusable there, the app reads what the OEM app persists.
+  ///
+  /// What this costs, all from the same rule that only the role holder may write
+  /// to the provider: outgoing messages won't appear in the OEM app, read state
+  /// can't be pushed back to it, and server history can't be restored into the
+  /// system store. Receiving, sending, syncing and the watches are unaffected.
+  bool get observerMode => !isDefaultSmsApp.value && hasSmsPermissions.value;
+
+  /// Polled as a backstop in the foreground. The ContentObserver already fires on
+  /// insert, so this only matters on a ROM that also suppresses that
+  /// notification — hence short enough to feel immediate rather than tuned for
+  /// battery, and only while [observerMode] is actually in use.
+  static const Duration _providerPollInterval = Duration(seconds: 3);
+  Timer? _providerPollTimer;
+  bool _importingFromProvider = false;
+
+  /// Import anything new in the system store. Safe to call as often as you like:
+  /// the cursors and content-hash dedupe make it a no-op when nothing changed,
+  /// and the guard keeps overlapping calls from racing.
+  Future<void> importFromProvider() async {
+    if (!canReadProvider || _importingFromProvider) return;
+    _importingFromProvider = true;
+    try {
+      // Only announce when nothing else will: with the role, SmsDeliverReceiver
+      // has already notified, and doing it again would double up.
+      await backfill(notify: observerMode);
+      await backfillMms(live: observerMode);
+      unawaited(syncToServer());
+    } finally {
+      _importingFromProvider = false;
+    }
+  }
+
+  /// Start watching the store. The native observer is registered regardless of
+  /// the role, because losing it is worse than the wasted call: when we do hold
+  /// the role the backfill it triggers simply finds nothing new.
+  Future<void> _startProviderWatch() async {
+    if (!canReadProvider) return;
+    try {
+      await MethodChannelSvc.invokeMethod('sms-observe-provider');
+    } catch (e) {
+      Logger.warn('Could not observe the SMS provider: $e');
+    }
+
+    _providerPollTimer?.cancel();
+    if (!observerMode) return;
+    _providerPollTimer = Timer.periodic(_providerPollInterval, (_) async {
+      if (!observerMode) return;
+      await importFromProvider();
+    });
   }
 
   /// Ask for the missing SMS/MMS permissions (or open app settings if the system
@@ -336,8 +415,9 @@ class SmsService {
     bool ok = true;
     try {
       await refreshStatus();
-      if (isDefaultSmsApp.value) await backfill();
-      if (isDefaultSmsApp.value) await backfillMms();
+      // Reading the store needs READ_SMS, not the SMS role — see [observerMode].
+      if (canReadProvider) await backfill();
+      if (canReadProvider) await backfillMms();
       if (serverConfigured) {
         await _ensureServer();
         await _heartbeat();
@@ -356,24 +436,50 @@ class SmsService {
 
   // ---- local provider backfill (this phone's own SMS -> display) ----
 
-  Future<void> backfill() async {
+  /// [notify] posts a notification for each incoming message imported, for
+  /// [observerMode]: there we never see SMS_DELIVER, so the receiver that
+  /// normally notifies never runs, and without this the only alert would come
+  /// from the OEM app — which opens the OEM app when tapped.
+  ///
+  /// Never on the first run, which imports the whole existing history and would
+  /// otherwise announce every message the phone has ever received.
+  Future<void> backfill({bool notify = false}) async {
     final prefs = await _sp;
     final int since = prefs.getInt(_kLastSync) ?? 0;
     final bool firstRun = !(prefs.getBool(_kBackfillDone) ?? false);
     final List<dynamic> rows = (await MethodChannelSvc.invokeMethod('sms-query', {'since': since})) ?? const [];
     int maxDate = since;
     int imported = 0;
+    final bool announce = notify && !firstRun;
     for (final r in rows) {
       final map = (r as Map).cast<String, dynamic>();
       final int d = (map['date'] as num?)?.toInt() ?? 0;
       if (d > maxDate) maxDate = d;
-      if (!firstRun && ((map['isFromMe'] as bool?) ?? false)) continue;
-      await _insert(map);
+      final bool fromMe = (map['isFromMe'] as bool?) ?? false;
+      if (!firstRun && fromMe) continue;
+      // live: these really are arriving now, so the watches and unread counts
+      // should treat them as such rather than as history.
+      await _insert(map, live: announce);
+      if (announce && !fromMe) await _notifyImported(map);
       imported++;
     }
     await prefs.setInt(_kLastSync, maxDate);
     await prefs.setBool(_kBackfillDone, true);
     Logger.info('SmsService: backfilled $imported/${rows.length} local SMS (since $since, firstRun=$firstRun)');
+  }
+
+  /// Post a notification for a message we imported rather than received. Native
+  /// so it works identically to the SMS_DELIVER path, including the channel and
+  /// the tap target.
+  Future<void> _notifyImported(Map<String, dynamic> map) async {
+    try {
+      await MethodChannelSvc.invokeMethod('sms-notify', {
+        'address': (map['address'] as String?) ?? '',
+        'body': (map['body'] as String?) ?? '',
+      });
+    } catch (e) {
+      Logger.warn('Could not notify for an imported SMS: $e');
+    }
   }
 
   /// Import provider MMS newer than the local-display cursor into the BlueBubbles
