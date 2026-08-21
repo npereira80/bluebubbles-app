@@ -44,6 +44,7 @@ import com.bluebubbles.messaging.services.sms.SmsSendHandler
 import com.bluebubbles.messaging.services.sms.SmsSimInfoHandler
 import com.bluebubbles.messaging.services.sms.SmsObserveProviderHandler
 import com.bluebubbles.messaging.services.sms.SmsNotifyHandler
+import com.bluebubbles.messaging.services.sms.SmsHandoffHandler
 import com.bluebubbles.messaging.services.sms.MmsQueryHandler
 import com.bluebubbles.messaging.services.sms.MmsPartBytesHandler
 import com.bluebubbles.messaging.services.sms.MmsSendHandler
@@ -168,6 +169,7 @@ class MethodCallHandler {
             SmsSimInfoHandler.tag -> SmsSimInfoHandler().handleMethodCall(call, result, context)
             SmsObserveProviderHandler.tag -> SmsObserveProviderHandler().handleMethodCall(call, result, context)
             SmsNotifyHandler.tag -> SmsNotifyHandler().handleMethodCall(call, result, context)
+            SmsHandoffHandler.tag -> SmsHandoffHandler().handleMethodCall(call, result, context)
             MmsQueryHandler.tag -> MmsQueryHandler().handleMethodCall(call, result, context)
             MmsPartBytesHandler.tag -> MmsPartBytesHandler().handleMethodCall(call, result, context)
             MmsSendHandler.tag -> MmsSendHandler().handleMethodCall(call, result, context)
