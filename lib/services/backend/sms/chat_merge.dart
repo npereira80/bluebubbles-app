@@ -69,6 +69,25 @@ class ChatMerge {
     );
   }
 
+  /// The local SMS chat for a canonical [number] — the existing one if there is
+  /// history, otherwise a fresh unpersisted `SMS;-;tn:` chat that
+  /// [Chat.addMessage] will save on send.
+  ///
+  /// Unlike [smsSendChat] this is keyed by number rather than an existing chat,
+  /// for starting a conversation with someone we've never texted. It deliberately
+  /// touches no network: an SMS thread exists only on this phone, so there is
+  /// nothing for the BlueBubbles server to look up or create.
+  static Chat localSmsChatFor(String number) {
+    for (final c in ChatsSvc.allChats) {
+      if (isOurSms(c) && oneOnOneNumber(c) == number) return c;
+    }
+    return Chat(
+      guid: 'SMS;-;tn:$number',
+      chatIdentifier: number,
+      participants: [Handle(address: number, service: 'SMS')],
+    );
+  }
+
   /// The contact's BB (iMessage/TF) chat for a canonical phone [number], or null
   /// if they only have our local SMS thread. Resolved from the DB chat list, so
   /// it works even when called with a freshly-built (un-persisted) SMS chat.

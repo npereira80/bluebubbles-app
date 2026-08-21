@@ -7,6 +7,7 @@ import 'package:bluebubbles/app/wrappers/stateful_boilerplate.dart';
 import 'package:bluebubbles/app/wrappers/titlebar_wrapper.dart';
 import 'package:bluebubbles/database/models.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
+import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
 import 'package:bluebubbles/services/backend/sms/imessage_mode.dart';
 import 'package:bluebubbles/services/services.dart';
 import 'package:bluebubbles/services/backend/interfaces/sync_interface.dart';
@@ -511,6 +512,23 @@ class ChatCreatorController extends StatefulController {
 
     // Re-check for an existing chat in case the debounce hasn't fired yet.
     Chat? resolvedChat = activeController.value?.chat ?? await findExistingChat(checkDeleted: true, update: false);
+
+    // An SMS thread exists only on this phone, so there is nothing for the
+    // BlueBubbles server to find or create. Resolving it locally has to happen
+    // before the branch below, which otherwise asks that server about a number
+    // it has never heard of — and on a phone where it isn't configured or
+    // reachable, that request hangs behind a modal, non-dismissible dialog.
+    if (resolvedChat == null && (selectedService.value == ChatServiceType.sms || !IMessageMode.enabled)) {
+      if (selectedContacts.length == 1) {
+        resolvedChat = ChatMerge.localSmsChatFor(normalizeToE164(selectedContacts.first.address));
+      } else if (selectedContacts.length > 1) {
+        // Group MMS isn't implemented. Saying so beats falling through to the
+        // iMessage path, which would either fail or quietly create the thread on
+        // the wrong service.
+        showSnackbar('Not supported', 'Group SMS/MMS conversations can\'t be started yet.');
+        return;
+      }
+    }
     bool messageSentWithChat = false;
     // Messages already synced to the DB during the new-chat creation flow.
     // Pre-seeded into messagesService.struct before navigation so MessagesView's
@@ -563,17 +581,23 @@ class ChatCreatorController extends StatefulController {
         // For single-contact chats, try to find an existing chat on the server via a
         // GET request before creating one. Using createChat with no message as a lookup
         // is incorrect — the server rejects it when the Private API is enabled.
+        // The dialog around this is modal and non-dismissible, so a request that
+        // never settles is an app the user has to force-quit. Bounded so the
+        // catch below can tell them what happened instead.
+        const lookupTimeout = Duration(seconds: 30);
+
         Chat? serverChat;
         if (selectedContacts.length == 1) {
           final address = selectedContacts.first.address;
-          serverChat = await ChatsSvc.fetchChat('$method;-;$address');
+          serverChat = await ChatsSvc.fetchChat('$method;-;$address').timeout(lookupTimeout);
         }
 
         if (serverChat == null) {
           // No existing chat found on the server — create one.
           // Message has already been validated above; it is delivered as part of
           // creation, so pendingSend must be skipped for this path.
-          final response = await HttpSvc.chat.create(participants, messageText, method);
+          final response =
+              await HttpSvc.chat.create(participants, messageText, method).timeout(lookupTimeout);
           serverChat = Chat.fromMap(response.data['data'] as Map<String, dynamic>);
           messageSentWithChat = true;
         }
@@ -620,9 +644,12 @@ class ChatCreatorController extends StatefulController {
           barrierDismissible: false,
           context: context,
           title: 'Failed to create chat!',
-          body: error is Response
-              ? 'Reason: (${(error as dynamic).data["error"]["type"]}) -> ${(error as dynamic).data["error"]["message"]}'
-              : error.toString(),
+          body: error is TimeoutException
+              ? 'The iMessage server did not respond. Check that it is reachable, '
+                  'or switch to SMS to send this as a text.'
+              : error is Response
+                  ? 'Reason: (${(error as dynamic).data["error"]["type"]}) -> ${(error as dynamic).data["error"]["message"]}'
+                  : error.toString(),
           actions: [
             BBDialogAction(
               text: 'OK',
