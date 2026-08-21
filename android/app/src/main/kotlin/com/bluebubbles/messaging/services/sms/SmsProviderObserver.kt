@@ -49,7 +49,9 @@ object SmsProviderObserver {
                 // not what — reading the row here would duplicate the cursor
                 // handling, the MMS part assembly and the dedupe that the Dart
                 // backfill already does correctly.
-                runCatching { MethodCallHandler.invokeMethod(CHANGED, mapOf("uri" to uri?.toString())) }
+                // invokeMethod takes a non-null Map<String, Any>; the uri is only
+                // ever informational, since Dart re-reads from its own cursor.
+                runCatching { MethodCallHandler.invokeMethod(CHANGED, mapOf("uri" to (uri?.toString() ?: ""))) }
                     .onFailure { Log.d(Constants.logTag, "Provider change: Dart engine not up") }
             }
         }
