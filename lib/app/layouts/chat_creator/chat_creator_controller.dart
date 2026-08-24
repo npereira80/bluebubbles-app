@@ -521,6 +521,12 @@ class ChatCreatorController extends StatefulController {
     if (resolvedChat == null && (selectedService.value == ChatServiceType.sms || !IMessageMode.enabled)) {
       if (selectedContacts.length == 1) {
         resolvedChat = ChatMerge.localSmsChatFor(normalizeToE164(selectedContacts.first.address));
+        // Same as the server branch does for a chat it just created: without
+        // this the thread exists in the database but not in the chat list, so
+        // it wouldn't appear until the next restart.
+        if (!ChatsSvc.updateChat(resolvedChat)) {
+          await ChatsSvc.addChat(resolvedChat);
+        }
       } else if (selectedContacts.length > 1) {
         // Group MMS isn't implemented. Saying so beats falling through to the
         // iMessage path, which would either fail or quietly create the thread on

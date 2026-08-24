@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:bluebubbles/database/database.dart';
 import 'package:bluebubbles/database/models.dart';
 import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/services/ui/chat/chats_service.dart';
@@ -78,14 +79,32 @@ class ChatMerge {
   /// touches no network: an SMS thread exists only on this phone, so there is
   /// nothing for the BlueBubbles server to look up or create.
   static Chat localSmsChatFor(String number) {
+    final guid = 'SMS;-;tn:$number';
     for (final c in ChatsSvc.allChats) {
       if (isOurSms(c) && oneOnOneNumber(c) == number) return c;
     }
-    return Chat(
-      guid: 'SMS;-;tn:$number',
+    // Not in the in-memory list yet, but it may still be in the database — a
+    // thread whose messages were all deleted, say.
+    final stored = Chat.findOne(guid: guid);
+    if (stored != null) return stored;
+
+    final chat = Chat(
+      guid: guid,
       chatIdentifier: number,
       participants: [Handle(address: number, service: 'SMS')],
     );
+
+    // Persist immediately, and not as a convenience: an ObjectBox ToOne is only
+    // attached to the store once its entity has been put. Chat.toMap() reads
+    // dbLatestMessage.targetId, so the first save of a hand-built Chat throws
+    // "ToOne relation field not initialized" — which is what happened when the
+    // outgoing handler called addMessage on a brand-new SMS conversation, and
+    // the send died there with nothing shown to the user.
+    //
+    // The incoming path gets away with a bare Chat because IncomingMsgHandler
+    // puts it before anything reads the relation.
+    Database.chats.put(chat);
+    return chat;
   }
 
   /// The contact's BB (iMessage/TF) chat for a canonical phone [number], or null
