@@ -951,6 +951,11 @@ class OutgoingMessageHandler {
       // Nothing could carry it right now. Rather than showing a failure the user
       // has to notice and retry by hand, hold it and send it the moment either
       // route comes back.
+      // Log why before parking it. Holding the message is the right behaviour,
+      // but it used to discard the exception that caused it, so a send that
+      // quietly went to the outbox looked identical to one that did nothing —
+      // with nothing anywhere to say which route had failed or how.
+      Logger.warn('SMS send failed, holding it: $e', error: e, trace: s, tag: _tag);
       if (await _holdForLater(c, m, tempGuid, address, body)) return;
       await _finalizeOutgoingFailure(c, m, tempGuid,
           logMessage: 'Failed to send SMS', error: e, stack: s);
