@@ -1705,20 +1705,91 @@ class SmsService {
     return 'sms-$dir-${_fnv1a(key)}';
   }
 
-  /// Server-side conversation key for [address] — mirrors the Node server's
-  /// `normalizeAddress`. Alphanumeric sender IDs (OTP/banks like "Google") are
-  /// kept verbatim so they don't all collapse to an empty id; otherwise it's a
-  /// leading `+` (if present) plus digits only. Used to address /read and
-  /// whole-thread /delete calls.
+  /// Server-side conversation key for [address] — a line-by-line mirror of the
+  /// Node server's `canonicalAddress` (Server App/src/util.ts).
+  ///
+  /// This has to agree with the server digit for digit, because it is also the
+  /// first component of [serverContentHash], and that hash is the identity a
+  /// delete is matched on across devices. It used to lean on [canonAddress],
+  /// which returns the number untouched whenever libphonenumber can't validate
+  /// it — so the same person could be keyed as "916309003" here and
+  /// "+351916309003" on the server, and a delete from the Mac would silently
+  /// match nothing on the phone.
+  ///
+  /// Deliberately hand-rolled rather than delegating: matching the server's
+  /// arithmetic exactly matters more than being clever about number formats,
+  /// and libphonenumber's notion of validity is not something the server shares.
   static String serverConvId(String address) {
-    final canon = canonAddress(address);
-    if (RegExp(r'[A-Za-z]').hasMatch(canon)) return canon;
-    final plus = canon.startsWith('+') ? '+' : '';
-    return plus + canon.replaceAll(RegExp(r'[^0-9]'), '');
+    final trimmed = address.trim();
+    if (trimmed.isEmpty) return '';
+    // Alphanumeric sender IDs (OTP/banks like "Google") and emails carry no
+    // dialable digits; stripping non-digits would collapse them all into one
+    // empty id, so they stay verbatim.
+    if (RegExp(r'[A-Za-z]').hasMatch(trimmed)) return trimmed;
+
+    final digits = trimmed.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return '';
+
+    // Already international, in either notation.
+    if (trimmed.startsWith('+')) return '+$digits';
+    if (digits.startsWith('00')) return '+${digits.substring(2)}';
+
+    // Short codes are not dialable numbers and must never take a country code:
+    // doing so would merge unrelated senders into one thread.
+    if (digits.length < 7) return digits;
+
+    final cc = _defaultCallingCode();
+    if (cc.isEmpty) {
+      // This phone can't read its own number, but the server may still know the
+      // account's, in which case it *will* apply a country code. So give
+      // libphonenumber one chance under the SIM region — it lands on the same
+      // international form in that case — and fall back to bare digits only if
+      // even that fails, which is what the server does with no country code.
+      final viaLib = canonAddress(trimmed);
+      return viaLib.startsWith('+') ? '+${viaLib.replaceAll(RegExp(r'[^0-9]'), '')}' : digits;
+    }
+
+    // Already carries the country code without a plus, e.g. "351916309003".
+    if (digits.startsWith(cc) && digits.length > cc.length + 5) return '+$digits';
+
+    return '+$cc$digits';
   }
 
+  /// Country calling code used to resolve a national address, as digits ("351").
+  ///
+  /// Taken from this account's own number, which is the same source the server
+  /// uses (the number verified at sign-in) — so the two derive the same code
+  /// rather than agreeing by luck. Empty when the number isn't known.
+  static String _defaultCallingCode() {
+    // Static, and reachable from a background isolate before the service is
+    // registered, so the locator is checked rather than assumed.
+    if (!GetIt.I.isRegistered<SmsService>()) return '';
+    final own = SmsSvc.effectiveSimNumber?.trim();
+    if (own == null || own.isEmpty) return '';
+    final cached = _ccByOwnNumber[own];
+    if (cached != null) return cached;
+
+    var cc = '';
+    try {
+      final digits = own.replaceAll(RegExp(r'[^0-9]'), '');
+      final parsed = PhoneNumberUtil.instance
+          .parse(own.startsWith('+') ? own : '+$digits', null);
+      final code = parsed.countryCode ?? 0;
+      if (code > 0) cc = code.toString();
+    } catch (_) {
+      // Unparseable own number: leave addresses as received rather than
+      // guessing a country, since a wrong one is worse than an inconsistent key.
+    }
+    _ccByOwnNumber[own] = cc;
+    return cc;
+  }
+
+  /// Cached because [serverConvId] runs per message during a sync, and parsing
+  /// the same number thousands of times is pure overhead.
+  static final Map<String, String> _ccByOwnNumber = {};
+
   /// Server-side content hash for a single SMS — mirrors the Node server's
-  /// `contentHash` (sha256 over normalized address, type, direction, trimmed
+  /// `contentHash` (sha256 over the canonical address, type, direction, trimmed
   /// body and a 10s time bucket). Lets us delete one message by content identity
   /// without knowing the server's generated message id.
   /// Server content hash for [message] addressed by [number]. For an MMS it

@@ -336,3 +336,21 @@ The enforcing component is `com.android.mms.service` — identified from `dumpsy
 - `TelephonyManager.simState` and `getSystemService(SmsManager.class)` describe the *default slot / subscription*, not the active SIM. On a dual-SIM or eSIM phone both are wrong whenever the SIM is in the other slot.
 - `READ_PHONE_STATE` / `READ_PHONE_NUMBERS` are normally granted with the SMS role but not always. Without them there is no `activeSubscriptionInfoList`, no ICCID and no MSISDN, so the app concludes there is no SIM.
 - ICCID is system-apps-only since Android 11, and carriers frequently never write the MSISDN to the SIM. A null SIM identifier is therefore expected, not a fault, and must not be read as "no SIM".
+
+## ADR-015: One Canonical Address Form Is the Cross-Device Identity
+
+**Decision:** A phone number is keyed in exactly one form everywhere it crosses a device boundary: full international, digits with a leading `+`. The sync server derives it (`canonicalAddress` in `Server App/src/util.ts`), and `SmsService.serverConvId` is a line-by-line mirror of that function. Local chat identity keeps using `canonAddress` (libphonenumber); the two are separate on purpose.
+
+**Context:** The server built both the conversation id and the content hash from the address as it arrived. Carriers do not deliver one consistent format: a message sent to `916309003` came back from `+351916309003`. That produced two threads for one person, and two different content hashes for one message. Since the content hash *is* the identity a delete is matched on, deleting a message on the Mac left the copy on the phone untouched — reproducible only for the account's own number, because that was the one number arriving in both formats.
+
+**Rationale:**
+- The hash has to be computed identically on the server, on Android and after any migration, so the canonicalisation cannot depend on anything device-specific. `canonAddress` fails that test: it returns the number untouched whenever libphonenumber can't validate it, which is exactly the case that produced the split.
+- The calling code used to resolve a national number comes from the account's own verified number on both sides, rather than from the SIM region on one and the account on the other, so the two derive the same value instead of agreeing by coincidence.
+- A wrong country code is worse than an inconsistent key: it merges two strangers into one thread. So when the calling code is unknown, both sides leave the digits alone.
+- Short codes (under 7 digits) and alphanumeric senders are never given a country code — every bank and OTP sender would otherwise collapse into one conversation.
+
+**Consequences:**
+- Changing the hash function re-keys history, so the server ships `scripts/canonicalise-addresses.ts`: dry run by default, refuses to write without `--apply`, merges threads split by format, and tombstones the rows that turn out to be one message stored twice so clients drop their duplicates.
+- A client on an older build computes the previous hash and matches nothing. Server and clients have to be updated together; the server README states the order.
+- Tombstones written before the migration keep their old hashes and are not recomputed (the address they were hashed from isn't stored). They still suppress nothing incorrectly, but a full re-backfill from a phone could resurrect a small number of previously deleted messages.
+- Conversation ids arriving from clients are canonicalised server-side on `/read`, `/delete` and the watch endpoints, so a client holding a locally cached id in the old format still resolves to the right thread instead of silently matching nothing.
