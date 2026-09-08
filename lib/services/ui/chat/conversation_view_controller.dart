@@ -106,6 +106,15 @@ class ConversationViewController extends StatefulController with GetSingleTicker
   Timer? _scrollDownDebounce;
   Future<void> Function(SendData)? sendFunc;
 
+  /// True while a bubble is flying from the composer into the thread.
+  ///
+  /// [MessagesView] keeps the newly inserted outgoing row invisible (it still
+  /// takes up its space, so the list opens the gap the bubble lands in) until
+  /// this clears. Without it both copies are on screen at once and the message
+  /// reads as having been sent twice: the row appears instantly at the bottom,
+  /// and the animated bubble then flies in on top of it.
+  final RxBool sendFlightActive = false.obs;
+
   /// When set, [_SendAnimationState] will auto-fire this send as soon as it
   /// registers [sendFunc] (i.e. immediately after the widget is built).
   /// Used by ChatCreator to pre-queue a send before navigating to ConversationView.

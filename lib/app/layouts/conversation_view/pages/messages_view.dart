@@ -684,15 +684,34 @@ class MessagesViewState extends State<MessagesView> with MessagesServiceMixin, T
                                       ),
                                     );
 
-                                    // Animate sent messages with size + slide + fade (only if outgoing from this device)
+                                    // Outgoing messages animate with size + slide + fade.
+                                    //
+                                    // While a bubble is flying up from the
+                                    // composer the row stays invisible: it keeps
+                                    // its height, so the list opens the gap the
+                                    // bubble lands in, but only one copy of the
+                                    // message is ever drawn. Reading the flag
+                                    // inside an Obx rebuilds just this row when
+                                    // the flight lands.
+                                    //
+                                    // Deliberately not gated on `isSending`: an
+                                    // SMS over the SIM can be acknowledged in
+                                    // well under the animation's length, and the
+                                    // moment the temp GUID was replaced the row
+                                    // fell out of this branch and appeared under
+                                    // the still-flying bubble.
                                     final isFromMe = message.isFromMe ?? false;
-                                    if (isFromMe &&
-                                        message.isSending &&
-                                        animationOrchestrator.isMessageAnimating(message)) {
-                                      return animationOrchestrator.buildSentMessageAnimation(
-                                        child: messageWidget,
-                                        animation: animation,
-                                      );
+                                    if (isFromMe && animationOrchestrator.isMessageAnimating(message)) {
+                                      return Obx(() => animationOrchestrator.buildSentMessageAnimation(
+                                            child: Visibility(
+                                              visible: !controller.sendFlightActive.value,
+                                              maintainSize: true,
+                                              maintainAnimation: true,
+                                              maintainState: true,
+                                              child: messageWidget,
+                                            ),
+                                            animation: animation,
+                                          ));
                                     }
 
                                     // Animate other messages with size + slide only (received or from other devices)

@@ -5,6 +5,7 @@ import 'dart:ui';
 import 'package:async_task/async_task_extension.dart';
 import 'package:audio_waveforms/audio_waveforms.dart';
 import 'package:bluebubbles/app/components/custom_text_editing_controllers.dart';
+import 'package:bluebubbles/app/layouts/conversation_view/pages/handlers/message_list_animation_config.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/widgets/message/misc/tail_clipper.dart';
 import 'package:bluebubbles/app/wrappers/stateful_boilerplate.dart';
 import 'package:bluebubbles/helpers/helpers.dart';
@@ -31,6 +32,7 @@ class _SendAnimationState extends CustomState<SendAnimation, SendData, Conversat
   Message? message;
   Tween<double> tween = Tween<double>(begin: 1, end: 0);
   Control control = Control.stop;
+  Timer? _flightWatchdog;
 
   // The padding applied to the ConversationTextField in its closed state
   // (bottom: 10 + top: 10) plus
@@ -134,6 +136,15 @@ class _SendAnimationState extends CustomState<SendAnimation, SendData, Conversat
         });
       });
     }
+  }
+
+  @override
+  void dispose() {
+    // Leaving the thread mid-flight must not strand the flag: the row it hides
+    // would stay invisible for the rest of its insert animation.
+    _flightWatchdog?.cancel();
+    controller.sendFlightActive.value = false;
+    super.dispose();
   }
 
   Future<void> send(SendData data) async {
@@ -303,6 +314,20 @@ class _SendAnimationState extends CustomState<SendAnimation, SendData, Conversat
         control = Control.play;
         message = _message;
       });
+      // Hide the row this send is about to insert into the list until the
+      // bubble finishes flying. The queue above inserts it immediately, so
+      // without this the message is drawn twice for the length of the flight.
+      controller.sendFlightActive.value = true;
+      // Watchdog. onEnd is what normally clears this, and AnimatedPositioned
+      // only calls it when it actually animates: send twice inside one flight
+      // and the target never changes, so no second animation runs. A hidden row
+      // that is never revealed is far worse than a duplicated one, so clear the
+      // flag unconditionally a beat after the flight should have ended.
+      _flightWatchdog?.cancel();
+      _flightWatchdog = Timer(
+        MessageListAnimationConfig.insertionDuration + const Duration(milliseconds: 150),
+        () => controller.sendFlightActive.value = false,
+      );
     }
     super.updateWidget(data);
   }
@@ -312,7 +337,9 @@ class _SendAnimationState extends CustomState<SendAnimation, SendData, Conversat
     final typicalWidth = message?.isBigEmoji ?? false
         ? NavigationSvc.width(context)
         : NavigationSvc.width(context) * MessageState.maxBubbleSizeFactor - 40;
-    const duration = 450;
+    // Same length as the list's insertion animation, so the row underneath has
+    // finished opening its space at the exact frame the bubble lands on it.
+    final duration = MessageListAnimationConfig.insertionDuration.inMilliseconds;
     const curve = Curves.easeInOut;
     const buttonSize = 88;
     final messageBoxSize = NavigationSvc.width(context) - buttonSize;
@@ -321,14 +348,19 @@ class _SendAnimationState extends CustomState<SendAnimation, SendData, Conversat
       bottom: message != null ? _animationBottomOffset : 0,
       right: samsung ? -38 : -5.0,
       curve: curve,
-      onEnd: () async {
+      onEnd: () {
         if (message != null) {
-          await Future.delayed(const Duration(milliseconds: 200));
+          // Hand off in a single frame: the flying bubble is removed and the
+          // real row is revealed together, at the position the bubble just
+          // reached. There used to be a 200ms pause here to let the row fade
+          // in underneath, which is precisely the window in which both were
+          // visible.
           setState(() {
             tween = Tween<double>(begin: 1, end: 0);
             control = Control.stop;
             message = null;
           });
+          controller.sendFlightActive.value = false;
         }
       },
       child: Visibility(
