@@ -542,7 +542,18 @@ class OutgoingMessageHandler {
     if (isRetry) return [m];
     if ((m.text?.isEmpty ?? true) && (m.subject?.isEmpty ?? true) && r == null) return [];
 
-    if (!SettingsSvc.serverDetails.isMinBigSur && r == null) {
+    // Splitting is a workaround for a message-matching bug in the iMessage
+    // server on macOS older than Big Sur. Two reasons it must not fire outside
+    // that case:
+    //
+    //  - ServerDetails.empty() reports macOSVersion 0, so isMinBigSur is false
+    //    when there is no server at all. On an SMS-only install every message
+    //    containing a link was therefore split in two, and a link sent as the
+    //    first message of a new conversation failed outright.
+    //  - Our own SMS chats never reach that server, so there is nothing to work
+    //    around: text plus a link is one SMS.
+    final knowsMacOSVersion = SettingsSvc.serverDetails.macOSVersion > 0;
+    if (knowsMacOSVersion && !SettingsSvc.serverDetails.isMinBigSur && !ChatMerge.isOurSms(c) && r == null) {
       // Split URL messages on OS X to prevent message matching glitches.
       String mainText = m.text!;
       String? secondaryText;

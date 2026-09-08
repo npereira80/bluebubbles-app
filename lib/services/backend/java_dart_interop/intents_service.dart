@@ -12,6 +12,8 @@ import 'package:bluebubbles/helpers/helpers.dart';
 import 'package:bluebubbles/app/layouts/chat_creator/chat_creator.dart';
 import 'package:bluebubbles/app/layouts/conversation_view/pages/conversation_view.dart';
 import 'package:bluebubbles/database/models.dart';
+import 'package:bluebubbles/services/backend/sms/chat_merge.dart';
+import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/services/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Intent;
@@ -117,6 +119,8 @@ class IntentsService {
               (route) => route.isFirst,
             );
           }
+        } else if (_smsComposeUri(intent.data) != null) {
+          await openSmsCompose(_smsComposeUri(intent.data)!, isInitialIntent: isInitialIntent);
         } else if (intent.extra?["chatGuid"] != null) {
           final guid = intent.extra!["chatGuid"]!;
           await openChat(guid, isInitialIntent: isInitialIntent);
@@ -129,6 +133,78 @@ class IntentsService {
           }
         }
     }
+  }
+
+  /// The URI schemes Android uses to ask an SMS app to compose a message.
+  ///
+  /// Which one arrives depends on the caller: Contacts and most dialers use
+  /// `smsto:`, some use `sms:`, and the MMS variants turn up from share sheets.
+  static const List<String> _smsSchemes = ['smsto', 'sms', 'mmsto', 'mms'];
+
+  /// The compose URI from an intent, or null if this isn't one.
+  ///
+  /// Matched here rather than on the action, because these arrive as both
+  /// ACTION_SENDTO and ACTION_VIEW depending on the app that sent them, and the
+  /// scheme is what actually identifies the request.
+  String? _smsComposeUri(String? data) {
+    if (data == null) return null;
+    for (final scheme in _smsSchemes) {
+      if (data.startsWith('$scheme:')) return data;
+    }
+    return null;
+  }
+
+  /// Open a conversation for a `smsto:`/`sms:` compose request — tapping Message
+  /// on a contact, or a phone number in the dialer.
+  ///
+  /// The existing thread when there is one, so the person sees their history
+  /// rather than an empty draft; otherwise the new-message screen with the
+  /// number already filled in. Before this the intent was declared in the
+  /// manifest but never handled, so the app just opened on the chat list.
+  Future<void> openSmsCompose(String data, {required bool isInitialIntent}) async {
+    final uri = Uri.tryParse(data);
+    if (uri == null) return;
+
+    // `smsto:+351912345678` puts the number in the path; the rarer
+    // `sms://123456` puts it in the host. It may be percent-encoded, so "%2B"
+    // arrives for "+" — decodeComponent rather than decodeQueryComponent,
+    // because the latter would turn a literal "+" into a space.
+    //
+    // Multiple recipients are comma or semicolon separated; only the first is
+    // used, since a group MMS can't be started from here anyway.
+    final target = uri.path.isNotEmpty ? uri.path : uri.host;
+    final raw = target.isEmpty ? '' : Uri.decodeComponent(target);
+    final recipients =
+        raw.split(RegExp(r'[,;]')).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    final body = uri.queryParameters['body'];
+
+    await StartupTasks.waitForUI();
+
+    if (recipients.isEmpty) {
+      // `sms:?body=...` with no recipient — a share to "new message".
+      await openChat(null, text: body, isInitialIntent: isInitialIntent);
+      return;
+    }
+
+    final address = SmsService.canonAddress(recipients.first);
+    final existing = ChatMerge.chatForCompose(address);
+    if (existing != null) {
+      Logger.info('SMS compose intent resolved to ${existing.guid}', tag: 'IntentsService');
+      await openChat(existing.guid, text: body, isInitialIntent: isInitialIntent);
+      return;
+    }
+
+    final handle = Handle.findOne(addressAndService: HandleLookupKey(address, 'SMS'));
+    NavigationSvc.pushAndRemoveUntil(
+      Get.context!,
+      NewChatCreator(
+        initialSelected: [
+          SelectedContact(displayName: handle?.displayName ?? address, address: address),
+        ],
+        initialText: body,
+      ),
+      (route) => route.isFirst,
+    );
   }
 
   Future<void> answerFaceTime(String callUuid) async {

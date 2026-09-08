@@ -1,7 +1,10 @@
 import 'dart:async';
 
+import 'package:collection/collection.dart';
+
 import 'package:bluebubbles/database/database.dart';
 import 'package:bluebubbles/database/models.dart';
+import 'package:bluebubbles/services/backend/settings/settings_service.dart';
 import 'package:bluebubbles/services/backend/sms/sms_service.dart';
 import 'package:bluebubbles/services/ui/chat/chats_service.dart';
 import 'package:bluebubbles/services/ui/message/messages_service.dart';
@@ -105,6 +108,28 @@ class ChatMerge {
     // puts it before anything reads the relation.
     Database.chats.put(chat);
     return chat;
+  }
+
+  /// The chat to open for a compose request aimed at [number] — tapping Message
+  /// on a contact, or a number in the dialer.
+  ///
+  /// Prefers the contact's iMessage/Text-Forwarding thread when they have one,
+  /// because that's the merged conversation the person recognises and it can
+  /// still send as SMS via the header toggle. Falls back to the local SMS
+  /// thread, and returns null when there's no history at all, so the caller can
+  /// open the new-message screen instead.
+  static Chat? chatForCompose(String number) {
+    final localSms =
+        ChatsSvc.allChats.firstWhereOrNull((c) => isOurSms(c) && oneOnOneNumber(c) == number);
+
+    // The iMessage condition is read from settings rather than through
+    // IMessageMode, which imports this file — going the other way too would
+    // make the two libraries circular.
+    final iMessageOn = SettingsSvc.settings.iMessageEnabled.value &&
+        SettingsSvc.settings.serverAddress.value.isNotEmpty;
+    if (!iMessageOn) return localSms;
+
+    return bbChatForNumber(number) ?? localSms;
   }
 
   /// The contact's BB (iMessage/TF) chat for a canonical phone [number], or null
