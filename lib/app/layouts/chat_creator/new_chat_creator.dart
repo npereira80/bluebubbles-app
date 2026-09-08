@@ -161,8 +161,16 @@ class _ContentArea extends StatelessWidget {
       final activeCVC = controller.activeController.value;
 
       Widget child;
-      if (activeCVC == null) {
+      // The list wins when it's open, even over a resolved chat: tapping "To:"
+      // is how you get back to picking recipients, and it would be no use if the
+      // conversation stayed in front of it.
+      if (controller.showSuggestions.value) {
         child = SearchResultsList(key: const ValueKey('search'), controller: controller);
+      } else if (activeCVC == null) {
+        // Recipient chosen but no chat to show — a number with no history.
+        // Blank rather than a list of other people; the composer already has
+        // focus and the thread appears on send.
+        child = const SizedBox.expand(key: ValueKey('empty'));
       } else {
         final isIMsg = activeCVC.chat.isIMessage;
         final colorScheme = context.theme.colorScheme;

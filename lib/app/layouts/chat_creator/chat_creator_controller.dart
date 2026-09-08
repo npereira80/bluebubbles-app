@@ -50,6 +50,14 @@ class ChatCreatorController extends StatefulController {
 
   final RxBool isHeaderVisible = true.obs;
 
+  /// Whether the contacts/conversations list is showing.
+  ///
+  /// Confirming a recipient closes it and moves focus to the message field, so
+  /// the composer is ready to type in. It reopens only when the "To:" field is
+  /// tapped again — the list used to stay up under a chosen recipient, which
+  /// buried the message field behind a list of people you'd already picked.
+  final RxBool showSuggestions = true.obs;
+
   // ---- Text / Focus ----
   late final MentionTextEditingController textController;
   final messageNode = FocusNode();
@@ -83,9 +91,22 @@ class ChatCreatorController extends StatefulController {
     // open on iMessage.
     selectedService.value = ChatServiceType.sms;
 
+    // Arriving with a recipient already set — Message from Contacts, or a
+    // notification — is the same state as having just chosen one, so open
+    // straight into the conversation rather than a list of other people.
+    if (initialSelected.isNotEmpty) {
+      showSuggestions.value = false;
+      _focusMessageField();
+    }
+
     _loadData();
 
     addressController.addListener(_onAddressChanged);
+
+    // Tapping "To:" is the gesture that brings the list back.
+    addressNode.addListener(() {
+      if (addressNode.hasFocus) showSuggestions.value = true;
+    });
   }
 
   void _onAddressChanged() {
@@ -217,6 +238,10 @@ class ChatCreatorController extends StatefulController {
     // If we already have pre-selected contacts, try to find a matching chat
     if (selectedContacts.isNotEmpty) {
       await findExistingChat();
+      // Focus again now the chat has resolved: the attempt in onInit ran before
+      // the chats were loaded, so there was no conversation view — and
+      // therefore no field — to focus.
+      _focusMessageField();
     }
   }
 
@@ -245,8 +270,10 @@ class ChatCreatorController extends StatefulController {
 
     await findExistingChat();
 
-    // Keep focus on the address field so the user can keep adding recipients.
-    addressNode.requestFocus();
+    // Recipient chosen: close the list and put the cursor in the message field.
+    // Add another by tapping "To:" again, which reopens the list.
+    showSuggestions.value = false;
+    _focusMessageField();
   }
 
   Future<void> _fetchIMessageState(SelectedContact contact) async {
@@ -278,13 +305,20 @@ class ChatCreatorController extends StatefulController {
     filteredChats.value = result.chats;
     filteredContacts.value = result.contacts;
     await findExistingChat();
+    showSuggestions.value = false;
+    _focusMessageField();
+  }
 
-    // A chat was selected — move focus to the message compose field.
-    // Defer to the next frame so the TextFieldComponent has time to build
-    // and attach the CVC's focusNode before we request focus.
+  /// Put the cursor in the message field.
+  ///
+  /// Deferred a frame because the field may not exist yet: selecting a recipient
+  /// swaps the list out for the conversation view, and the CVC's focus node is
+  /// only attached once that has built. Falls back to the creator's own node
+  /// when there's no chat yet — a brand-new number — so typing still works.
+  void _focusMessageField() {
     final cvcFocusNode = activeController.value?.focusNode;
     SchedulerBinding.instance.addPostFrameCallback((_) {
-      cvcFocusNode?.requestFocus();
+      (cvcFocusNode ?? messageNode).requestFocus();
     });
   }
 
@@ -299,8 +333,10 @@ class ChatCreatorController extends StatefulController {
     if (selectedContacts.isEmpty) {
       // Back to an empty compose, which is a new message again — so back to the
       // SMS default rather than keeping an iMessage choice made for a recipient
-      // who is no longer there.
+      // who is no longer there, and back to showing the list, since there is now
+      // nobody to send to.
       selectedService.value = ChatServiceType.sms;
+      showSuggestions.value = true;
       await deactivateExistingChat();
     } else {
       await findExistingChat();
