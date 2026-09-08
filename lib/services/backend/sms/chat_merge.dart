@@ -107,7 +107,15 @@ class ChatMerge {
     // The incoming path gets away with a bare Chat because IncomingMsgHandler
     // puts it before anything reads the relation.
     Database.chats.put(chat);
-    return chat;
+
+    // Hand back the stored row, not the object that was just put.
+    //
+    // Everything downstream keys off chat.id — Chat.getMessagesAsync returns an
+    // empty list outright when it's null — so the caller must end up with a
+    // fully persisted, hydrated instance rather than the one built in memory.
+    // Re-reading it also means the relations are attached, which is the same
+    // trap that made the first save of a hand-built Chat throw.
+    return Chat.findOne(guid: guid) ?? chat;
   }
 
   /// The chat to open for a compose request aimed at [number] — tapping Message
