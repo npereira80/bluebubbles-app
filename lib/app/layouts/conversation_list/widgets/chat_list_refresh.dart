@@ -1,5 +1,7 @@
 import 'package:bluebubbles/helpers/types/helpers/misc_helpers.dart';
+import 'package:bluebubbles/services/backend/sms/imessage_mode.dart';
 import 'package:bluebubbles/services/backend/sms/sms_service.dart';
+import 'package:bluebubbles/services/backend/sync/sync_service.dart';
 import 'package:bluebubbles/services/network/socket_service.dart';
 import 'package:bluebubbles/utils/logger/logger.dart';
 import 'package:flutter/cupertino.dart';
@@ -30,10 +32,18 @@ class ChatListRefresh {
     }
 
     final futures = <Future>[SmsSvc.syncNow()];
-    if (SocketSvc.state.value != SocketState.connected) {
-      // A pull is also the natural moment to retry a dropped iMessage socket.
-      futures.add(Future(() => SocketSvc.restartSocket()));
+
+    if (IMessageMode.enabled) {
+      // Actually pull from the BlueBubbles server, rather than only nudging the
+      // socket. Restarting a dead socket recovers *future* messages; anything
+      // that arrived while it was down still needs fetching, which is what the
+      // incremental sync does.
+      if (SocketSvc.state.value != SocketState.connected) {
+        futures.add(Future(() => SocketSvc.restartSocket()));
+      }
+      futures.add(SyncSvc.startIncrementalSync());
     }
+
     try {
       await Future.wait(futures);
     } catch (e, s) {

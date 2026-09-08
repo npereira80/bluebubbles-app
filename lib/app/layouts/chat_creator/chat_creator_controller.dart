@@ -38,11 +38,16 @@ class ChatCreatorController extends StatefulController {
   final RxList<Chat> filteredChats = <Chat>[].obs;
   final RxList<ContactV2> filteredContacts = <ContactV2>[].obs;
   final Rxn<ConversationViewController> activeController = Rxn(null);
-  final Rx<ChatServiceType> selectedService = ChatServiceType.iMessage.obs;
+  /// SMS by default, whether the composer was opened from the pencil button or
+  /// from Message in Contacts.
+  ///
+  /// Upstream starts on iMessage, which is wrong for this fork: SMS is the route
+  /// that always works, iMessage needs a reachable Mac, and a new conversation
+  /// silently starting on iMessage meant a send could fail for a reason that
+  /// isn't visible in the composer. The toggle is still there for anyone who
+  /// wants iMessage for a particular message.
+  final Rx<ChatServiceType> selectedService = ChatServiceType.sms.obs;
 
-  /// Whether [selectedService] came from the user tapping a tab rather than from
-  /// looking at the recipient. A deliberate choice outranks detection.
-  bool _serviceChosenByUser = false;
   final RxBool isHeaderVisible = true.obs;
 
   // ---- Text / Focus ----
@@ -72,19 +77,11 @@ class ChatCreatorController extends StatefulController {
 
     selectedContacts.addAll(initialSelected);
 
-    // TN fork: SMS is the only route without a Bubbles server, so start there
-    // and treat it as settled — detection would otherwise flip it to iMessage
-    // for any contact that happens to have it, and the send would fail.
-    if (!IMessageMode.enabled) {
-      selectedService.value = ChatServiceType.sms;
-      _serviceChosenByUser = true;
-    }
-
-    // Auto-select service based on pre-selected contacts' known iMessage status.
-    // If any initial contact is explicitly non-iMessage, start on SMS.
-    if (initialSelected.any((c) => c.serviceType.value == ChatServiceType.sms)) {
-      selectedService.value = ChatServiceType.sms;
-    }
+    // SMS is where every new conversation starts, and it stays there unless the
+    // person taps the toggle. Detection can now only move towards SMS, never
+    // away from it — promoting to iMessage is what made "Message" from Contacts
+    // open on iMessage.
+    selectedService.value = ChatServiceType.sms;
 
     _loadData();
 
@@ -300,8 +297,10 @@ class ChatCreatorController extends StatefulController {
     filteredChats.value = result.chats;
     filteredContacts.value = result.contacts;
     if (selectedContacts.isEmpty) {
-      // Back to an empty compose — let detection take over again.
-      _serviceChosenByUser = false;
+      // Back to an empty compose, which is a new message again — so back to the
+      // SMS default rather than keeping an iMessage choice made for a recipient
+      // who is no longer there.
+      selectedService.value = ChatServiceType.sms;
       await deactivateExistingChat();
     } else {
       await findExistingChat();
@@ -314,7 +313,6 @@ class ChatCreatorController extends StatefulController {
 
   Future<void> onServiceChanged(ChatServiceType service) async {
     if (selectedService.value == service) return;
-    _serviceChosenByUser = true;
     selectedService.value = service;
     selectedContacts.clear();
     addressController.text = '';
@@ -334,15 +332,13 @@ class ChatCreatorController extends StatefulController {
       return null;
     }
 
-    // Auto-update service type based on selected contact iMessage status.
+    // Detection can only ever move *towards* SMS, never away from it.
     //
-    // TN fork: unless the user picked a tab themselves. Picking SMS, then a
-    // contact who also has iMessage, used to snap straight back to iMessage —
-    // so you had to reselect the tab, which closed the keyboard, before typing.
+    // It used to promote to iMessage for any contact that had it, which fought
+    // the SMS default two ways: picking SMS and then a contact with iMessage
+    // snapped straight back, and "Message" from Contacts opened on iMessage.
     final hasSmsContact = selectedContacts.firstWhereOrNull((c) => c.serviceType.value == ChatServiceType.sms) != null;
-    if (!_serviceChosenByUser) {
-      selectedService.value = hasSmsContact ? ChatServiceType.sms : ChatServiceType.iMessage;
-    } else if (selectedService.value == ChatServiceType.iMessage && hasSmsContact) {
+    if (selectedService.value == ChatServiceType.iMessage && hasSmsContact) {
       // The one case worth overriding: they asked for iMessage and this contact
       // can't receive it. SMS always works for a phone number, so a deliberate
       // SMS choice is never overridden.
